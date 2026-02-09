@@ -41,5 +41,15 @@ If you'd like to run from source or contribute:
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
 - [ ] **Tabbed Interface**: Manage multiple files in one window.
 
+## Release Notes
+
+### v0.2 (2026-02-08)
+- ✨ **Zoom / Text Size**: Added dynamic text scaling via UI controls and keyboard shortcuts (Ctrl+Scroll, Ctrl+/-, Ctrl+Plus).
+- 🎨 **Icon Fix**: Properly integrated custom application icon into the build and window frame.
+- 🤖 **Release Automation**: Fully automated CI/CD pipeline for Windows executables via GitHub Actions.
+
+### v0.1
+- Initial release with basic text editing, Regex search, and dark mode support.
+
 ## License
 MIT License - See [LICENSE](LICENSE) for details.
