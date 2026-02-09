@@ -15,6 +15,17 @@ class PaigeApp(ctk.CTk):
         # Window Setup
         self.title("Paige")
         self.geometry("900x700")
+
+        # Set Window Icon (Safe for Windows, ignored on Linux to avoid crashes)
+        if os.name == 'nt':
+            try:
+                base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+                icon_path = os.path.join(base_path, "assets", "icon.ico")
+                if os.path.exists(icon_path):
+                    self.iconbitmap(icon_path)
+            except Exception:
+                pass
+
         
         # Grid Configuration
         self.grid_columnconfigure(0, weight=1)
