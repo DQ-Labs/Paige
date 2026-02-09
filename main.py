@@ -47,6 +47,27 @@ class PaigeApp(ctk.CTk):
         self.btn_save = self._create_menu_button("Save", self.save_file)
         self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
 
+        # Text Size Controls
+        self.font_size = 14  # Default font size
+        
+        self.zoom_label = ctk.CTkLabel(self.menu_bar, text="Text Size:", font=("Segoe UI", 11))
+        self.zoom_label.pack(side="right", padx=(10, 5))
+        
+        self.btn_zoom_out = ctk.CTkButton(
+            self.menu_bar, text="-", width=30, 
+            command=lambda: self.update_font_size(self.font_size - 1)
+        )
+        self.btn_zoom_out.pack(side="right", padx=2)
+        
+        self.zoom_size_label = ctk.CTkLabel(self.menu_bar, text="14", font=("Segoe UI", 11), width=30)
+        self.zoom_size_label.pack(side="right", padx=2)
+        
+        self.btn_zoom_in = ctk.CTkButton(
+            self.menu_bar, text="+", width=30,
+            command=lambda: self.update_font_size(self.font_size + 1)
+        )
+        self.btn_zoom_in.pack(side="right", padx=2)
+
         # Word Wrap Toggle
         self.wrap_var = ctk.BooleanVar(value=False)
         self.wrap_check = ctk.CTkCheckBox(
@@ -105,6 +126,12 @@ class PaigeApp(ctk.CTk):
         self.bind("<Control-S>", lambda e: self.save_as_file())
         self.bind("<Control-f>", lambda e: self.toggle_find_bar())
         
+        # Zoom Keybindings
+        self.bind("<Control-plus>", lambda e: self.update_font_size(self.font_size + 1))
+        self.bind("<Control-equal>", lambda e: self.update_font_size(self.font_size + 1))  # For keyboards without numpad
+        self.bind("<Control-minus>", lambda e: self.update_font_size(self.font_size - 1))
+        self.textbox.bind("<Control-MouseWheel>", self._on_mouse_wheel_zoom)
+        
         # Status Bar Updates
         self.textbox.bind("<KeyRelease>", lambda e: self.update_status_bar())
         self.textbox.bind("<ButtonRelease>", lambda e: self.update_status_bar())
@@ -113,6 +140,26 @@ class PaigeApp(ctk.CTk):
         """Toggles line wrapping."""
         mode = "word" if self.wrap_var.get() else "none"
         self.textbox.configure(wrap=mode)
+
+    def update_font_size(self, new_size):
+        """Updates the font size of the text area."""
+        # Clamp the font size between 10 and 30
+        new_size = max(10, min(30, new_size))
+        
+        if new_size != self.font_size:
+            self.font_size = new_size
+            self.textbox.configure(font=("Consolas", self.font_size))
+            self.zoom_size_label.configure(text=str(self.font_size))
+
+    def _on_mouse_wheel_zoom(self, event):
+        """Handles Ctrl+MouseWheel for zooming."""
+        # event.delta is positive for scroll up, negative for scroll down
+        # On Windows, delta is typically 120 or -120
+        if event.delta > 0:
+            self.update_font_size(self.font_size + 1)
+        else:
+            self.update_font_size(self.font_size - 1)
+        return "break"  # Prevent default scrolling behavior
 
     def toggle_find_bar(self):
         """Shows/Hides the find bar."""
