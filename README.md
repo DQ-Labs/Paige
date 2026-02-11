@@ -36,12 +36,18 @@ If you'd like to run from source or contribute:
    python main.py
    ```
 
-## Roadmap
-- [ ] **Syntax Highlighting**: Planned support for `.py`, `.json`, `.yml`, and `.log` files.
+## Future Possibilities
+- [ ] **Syntax Highlighting**: Support for `.py`, `.json`, `.yml`, and `.log` files.
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
-- [ ] **Tabbed Interface**: Manage multiple files in one window.
 
 ## Release Notes
+
+### v0.3 (2026-02-10)
+- 🔍 **Find & Replace**: Added a robust Find/Replace system accessible via the menu or `Ctrl+H`.
+- ✨ **Floating Dialog**: New "stay-on-top" dialog window for easier searching.
+- 🟡 **Highlighting**: Matches are now highlighted in yellow for better visibility.
+- 🔄 **Advanced Features**: Includes "Find Next", "Replace" (single), "Replace All", wrap-around search, and auto-scrolling.
+
 
 ### v0.2 (2026-02-08)
 - ✨ **Zoom / Text Size**: Added dynamic text scaling via UI controls and keyboard shortcuts (Ctrl+Scroll, Ctrl+/-, Ctrl+Plus).

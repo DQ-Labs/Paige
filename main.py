@@ -46,6 +46,7 @@ class PaigeApp(ctk.CTk):
         self.btn_open = self._create_menu_button("Open", self.open_file)
         self.btn_save = self._create_menu_button("Save", self.save_file)
         self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
+        self.btn_find_replace = self._create_menu_button("Find/Replace", self.open_find_replace_dialog)
 
         # Text Size Controls
         self.font_size = 14  # Default font size
@@ -102,8 +103,9 @@ class PaigeApp(ctk.CTk):
         )
         self.textbox.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         
-        # Configure Highlighting Tag
+        # Configure Highlighting Tags
         self.textbox._textbox.tag_config("search", background="orange", foreground="black")
+        self.textbox._textbox.tag_config("search_highlight", background="yellow", foreground="black")
         
         # 4. Status Bar
         self.status_bar = ctk.CTkFrame(self, corner_radius=0, height=20)
@@ -125,6 +127,7 @@ class PaigeApp(ctk.CTk):
         self.bind("<Control-s>", lambda e: self.save_file())
         self.bind("<Control-S>", lambda e: self.save_as_file())
         self.bind("<Control-f>", lambda e: self.toggle_find_bar())
+        self.bind("<Control-h>", lambda e: self.open_find_replace_dialog())
         
         # Zoom Keybindings
         self.bind("<Control-plus>", lambda e: self.update_font_size(self.font_size + 1))
@@ -199,6 +202,177 @@ class PaigeApp(ctk.CTk):
             # Standard popup for not found
             from tkinter import messagebox
             messagebox.showinfo("Find", f"No matches found for '{query}'")
+
+    # --------------------------------------------------------------------------
+    # Find/Replace Dialog
+    # --------------------------------------------------------------------------
+    def open_find_replace_dialog(self):
+        """Opens a floating Find/Replace dialog window."""
+        # Create toplevel window
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Find / Replace")
+        dialog.geometry("400x180")
+        dialog.attributes('-topmost', True)
+        dialog.resizable(False, False)
+        
+        # Store search state
+        dialog.last_search_pos = "1.0"
+        
+        # Find what label and entry
+        find_label = ctk.CTkLabel(dialog, text="Find what:", font=("Segoe UI", 12))
+        find_label.grid(row=0, column=0, padx=10, pady=(15, 5), sticky="w")
+        
+        find_entry = ctk.CTkEntry(dialog, width=280, placeholder_text="Enter text to find...")
+        find_entry.grid(row=0, column=1, padx=10, pady=(15, 5), sticky="ew")
+        find_entry.focus_set()
+        
+        # Replace with label and entry
+        replace_label = ctk.CTkLabel(dialog, text="Replace with:", font=("Segoe UI", 12))
+        replace_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        
+        replace_entry = ctk.CTkEntry(dialog, width=280, placeholder_text="Enter replacement text...")
+        replace_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        
+        # Button frame
+        button_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_frame.grid(row=2, column=0, columnspan=2, pady=(15, 10))
+        
+        # Find Next button
+        btn_find_next = ctk.CTkButton(
+            button_frame, 
+            text="Find Next", 
+            width=100,
+            command=lambda: self._find_next_in_dialog(dialog, find_entry)
+        )
+        btn_find_next.pack(side="left", padx=5)
+        
+        # Replace button
+        btn_replace = ctk.CTkButton(
+            button_frame, 
+            text="Replace", 
+            width=100,
+            command=lambda: self._replace_current(dialog, find_entry, replace_entry)
+        )
+        btn_replace.pack(side="left", padx=5)
+        
+        # Replace All button
+        btn_replace_all = ctk.CTkButton(
+            button_frame, 
+            text="Replace All", 
+            width=100,
+            command=lambda: self._replace_all(dialog, find_entry, replace_entry)
+        )
+        btn_replace_all.pack(side="left", padx=5)
+        
+        # Bind Enter key in find entry to Find Next
+        find_entry.bind("<Return>", lambda e: self._find_next_in_dialog(dialog, find_entry))
+        
+        # Bind Enter key in replace entry to Replace
+        replace_entry.bind("<Return>", lambda e: self._replace_current(dialog, find_entry, replace_entry))
+        
+        # Configure grid weights
+        dialog.grid_columnconfigure(1, weight=1)
+
+    def _find_next_in_dialog(self, dialog, find_entry):
+        """Finds the next occurrence from the Find/Replace dialog."""
+        query = find_entry.get()
+        if not query:
+            return
+        
+        text_widget = self.textbox._textbox
+        
+        # Clear existing highlights
+        text_widget.tag_remove("search_highlight", "1.0", "end")
+        
+        # Search from last position
+        start_pos = dialog.last_search_pos
+        pos = text_widget.search(query, start_pos, stopindex="end", nocase=True)
+        
+        if not pos:
+            # Wrap around to beginning
+            pos = text_widget.search(query, "1.0", stopindex="end", nocase=True)
+            if not pos:
+                from tkinter import messagebox
+                messagebox.showinfo("Find", f"No matches found for '{query}'", parent=dialog)
+                dialog.last_search_pos = "1.0"
+                return
+        
+        # Highlight the match
+        end_pos = f"{pos}+{len(query)}c"
+        text_widget.tag_add("search_highlight", pos, end_pos)
+        text_widget.mark_set("insert", end_pos)
+        text_widget.see(pos)
+        
+        # Update search position for next search
+        dialog.last_search_pos = end_pos
+
+    def _replace_current(self, dialog, find_entry, replace_entry):
+        """Replaces the currently highlighted match and finds the next one."""
+        query = find_entry.get()
+        replacement = replace_entry.get()
+        
+        if not query:
+            return
+        
+        text_widget = self.textbox._textbox
+        
+        # Check if there's a current highlight
+        ranges = text_widget.tag_ranges("search_highlight")
+        if ranges:
+            # Replace the highlighted text
+            start, end = ranges[0], ranges[1]
+            text_widget.delete(start, end)
+            text_widget.insert(start, replacement)
+            
+            # Update search position
+            dialog.last_search_pos = f"{start}+{len(replacement)}c"
+            
+            # Find next occurrence
+            self._find_next_in_dialog(dialog, find_entry)
+        else:
+            # No current highlight, just find the first occurrence
+            self._find_next_in_dialog(dialog, find_entry)
+
+    def _replace_all(self, dialog, find_entry, replace_entry):
+        """Replaces all occurrences of the search term in the document."""
+        query = find_entry.get()
+        replacement = replace_entry.get()
+        
+        if not query:
+            return
+        
+        text_widget = self.textbox._textbox
+        
+        # Clear highlights
+        text_widget.tag_remove("search_highlight", "1.0", "end")
+        
+        # Count replacements
+        count = 0
+        pos = "1.0"
+        
+        while True:
+            pos = text_widget.search(query, pos, stopindex="end", nocase=True)
+            if not pos:
+                break
+            
+            # Replace the text
+            end_pos = f"{pos}+{len(query)}c"
+            text_widget.delete(pos, end_pos)
+            text_widget.insert(pos, replacement)
+            
+            # Move position forward
+            pos = f"{pos}+{len(replacement)}c"
+            count += 1
+        
+        # Reset search position
+        dialog.last_search_pos = "1.0"
+        
+        # Show confirmation
+        from tkinter import messagebox
+        if count > 0:
+            messagebox.showinfo("Replace All", f"Replaced {count} occurrence(s).", parent=dialog)
+        else:
+            messagebox.showinfo("Replace All", f"No matches found for '{query}'.", parent=dialog)
 
     def update_status_bar(self):
         """Updates the line/col/char info."""
