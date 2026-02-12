@@ -1,4 +1,5 @@
 import customtkinter as ctk
+import tkinter as tk
 import os
 import sys
 
@@ -106,6 +107,17 @@ class PaigeApp(ctk.CTk):
         # Configure Highlighting Tags
         self.textbox._textbox.tag_config("search", background="orange", foreground="black")
         self.textbox._textbox.tag_config("search_highlight", background="yellow", foreground="black")
+        
+        # Right-Click Context Menu
+        self.context_menu = tk.Menu(self.textbox._textbox, tearoff=0)
+        self.context_menu.add_command(label="Cut", command=self._context_cut)
+        self.context_menu.add_command(label="Copy", command=self._context_copy)
+        self.context_menu.add_command(label="Paste", command=self._context_paste)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Select All", command=self._context_select_all)
+        
+        # Bind right-click to show context menu
+        self.textbox._textbox.bind("<Button-3>", self._show_context_menu)
         
         # 4. Status Bar
         self.status_bar = ctk.CTkFrame(self, corner_radius=0, height=20)
@@ -458,6 +470,36 @@ class PaigeApp(ctk.CTk):
             
         except Exception as e:
             self._show_error("Save Error", f"Could not save file:\n{str(e)}")
+
+    # --------------------------------------------------------------------------
+    # Context Menu Methods
+    # --------------------------------------------------------------------------
+    def _show_context_menu(self, event):
+        """Displays the right-click context menu at the cursor position."""
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            # Ensure the menu closes properly
+            self.context_menu.grab_release()
+    
+    def _context_cut(self):
+        """Handles Cut command from context menu."""
+        self.textbox._textbox.event_generate("<<Cut>>")
+    
+    def _context_copy(self):
+        """Handles Copy command from context menu."""
+        self.textbox._textbox.event_generate("<<Copy>>")
+    
+    def _context_paste(self):
+        """Handles Paste command from context menu."""
+        self.textbox._textbox.event_generate("<<Paste>>")
+    
+    def _context_select_all(self):
+        """Handles Select All command from context menu."""
+        self.textbox._textbox.tag_add("sel", "1.0", "end")
+        self.textbox._textbox.mark_set("insert", "1.0")
+        self.textbox._textbox.see("insert")
+        return "break"
 
     def _show_error(self, title, message):
         """Displays error using standard tkinter messagebox."""

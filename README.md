@@ -9,6 +9,7 @@ A lightweight, secure text editor built in Python/CustomTkinter. Designed to rep
 - 🌙 **Dark Mode**: Forced by default for eye comfort (`customtkinter` dark theme).
 - 📜 **Large File Support**: Optimized handling by disabling word wrap by default, preventing GUI lag on million-line log files.
 - 🔍 **Search**: Built-in find functionality (Ctrl+F).
+- 🖱️ **Context Menu**: Right-click support for Cut, Copy, Paste, and Select All.
 - 💻 **Cross-Platform**: Developed on Windows & Linux; deployed as a native Windows executable.
 - 🔒 **Security**: No external telemetry or cloud sync. Your data stays on your machine.
 
@@ -41,6 +42,11 @@ If you'd like to run from source or contribute:
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
 
 ## Release Notes
+
+### v0.4 (2026-02-11)
+- 🖱️ **Context Menu**: Added a standard right-click context menu to the main text area.
+- ✂️ **Standard Actions**: Integrated Cut, Copy, Paste, and Select All commands.
+- 📋 **System Clipboard**: Full integration with the system clipboard via standard event generation.
 
 ### v0.3 (2026-02-10)
 - 🔍 **Find & Replace**: Added a robust Find/Replace system accessible via the menu or `Ctrl+H`.
