@@ -43,6 +43,12 @@ If you'd like to run from source or contribute:
 
 ## Release Notes
 
+### v0.5 (2026-02-12)
+- 📁 **File I/O System**: Full support for opening and saving plain text files.
+- 🖼️ **UI Improvements**: Added dedicated sidebar buttons and a dynamic window title that displays the current filename.
+- ⌨️ **Shortcuts**: Added `Ctrl+O` (Open), `Ctrl+S` (Save), and `Ctrl+Shift+S` (Save As).
+- 🛠️ **Refactor**: Improved code maintainability with a centralized `update_title()` method and standardized state management.
+
 ### v0.4 (2026-02-11)
 - 🖱️ **Context Menu**: Added a standard right-click context menu to the main text area.
 - ✂️ **Standard Actions**: Integrated Cut, Copy, Paste, and Select All commands.

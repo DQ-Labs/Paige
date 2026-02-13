@@ -132,7 +132,7 @@ class PaigeApp(ctk.CTk):
         # --------------------------------------------------------------------------
         # State & Bindings
         # --------------------------------------------------------------------------
-        self.current_file_path = None
+        self.current_file = None
         
         # Keybindings
         self.bind("<Control-o>", lambda e: self.open_file())
@@ -386,6 +386,13 @@ class PaigeApp(ctk.CTk):
         else:
             messagebox.showinfo("Replace All", f"No matches found for '{query}'.", parent=dialog)
 
+    def update_title(self):
+        """Updates the window title based on current file state."""
+        if self.current_file:
+            self.title(f"Paige - {os.path.basename(self.current_file)}")
+        else:
+            self.title("Paige")
+
     def update_status_bar(self):
         """Updates the line/col/char info."""
         # Get cursor position
@@ -432,8 +439,8 @@ class PaigeApp(ctk.CTk):
             self.textbox.delete("1.0", "end")
             self.textbox.insert("1.0", content)
             
-            self.current_file_path = file_path
-            self.title(f"Paige - {os.path.basename(file_path)}")
+            self.current_file = file_path
+            self.update_title()
             
         except UnicodeDecodeError:
             self._show_error("Encoding Error", "Could not decode file with UTF-8. Binary or legacy format suspected.")
@@ -442,8 +449,8 @@ class PaigeApp(ctk.CTk):
 
     def save_file(self):
         """Saves the current file. Defaults to Save As if new."""
-        if self.current_file_path:
-            self._write_to_file(self.current_file_path)
+        if self.current_file:
+            self._write_to_file(self.current_file)
         else:
             self.save_as_file()
 
@@ -465,8 +472,8 @@ class PaigeApp(ctk.CTk):
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             
-            self.current_file_path = file_path
-            self.title(f"Paige - {os.path.basename(file_path)}")
+            self.current_file = file_path
+            self.update_title()
             
         except Exception as e:
             self._show_error("Save Error", f"Could not save file:\n{str(e)}")
