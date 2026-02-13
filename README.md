@@ -6,12 +6,12 @@
 A lightweight, secure text editor built in Python/CustomTkinter. Designed to replace Notepad (or Notepad++) without the unnecessary bloat or security risks of modern "electron-heavy" editors. It's built by a sysadmin, for sysadmins, focusing on speed and stability when opening large logs or configuration files.
 
 ## Features
-- 🌙 **Dark Mode**: Forced by default for eye comfort (`customtkinter` dark theme).
-- 📜 **Large File Support**: Optimized handling by disabling word wrap by default, preventing GUI lag on million-line log files.
-- 🔍 **Search**: Built-in find functionality (Ctrl+F).
-- 🖱️ **Context Menu**: Right-click support for Cut, Copy, Paste, and Select All.
-- 💻 **Cross-Platform**: Developed on Windows & Linux; deployed as a native Windows executable.
-- 🔒 **Security**: No external telemetry or cloud sync. Your data stays on your machine.
+- **Dark Mode**: Forced by default for eye comfort (`customtkinter` dark theme).
+- **Large File Support**: Optimized handling by disabling word wrap by default, preventing GUI lag on million-line log files.
+- **Search**: Built-in find functionality (Ctrl+F).
+- **Context Menu**: Right-click support for Cut, Copy, Paste, and Select All.
+- **Cross-Platform**: Developed on Windows & Linux; deployed as a native Windows executable.
+- **Security**: No external telemetry or cloud sync. Your data stays on your machine.
 
 ## Installation
 
@@ -44,27 +44,26 @@ If you'd like to run from source or contribute:
 ## Release Notes
 
 ### v0.5 (2026-02-12)
-- 📁 **File I/O System**: Full support for opening and saving plain text files.
-- 🖼️ **UI Improvements**: Added dedicated sidebar buttons and a dynamic window title that displays the current filename.
-- ⌨️ **Shortcuts**: Added `Ctrl+O` (Open), `Ctrl+S` (Save), and `Ctrl+Shift+S` (Save As).
-- 🛠️ **Refactor**: Improved code maintainability with a centralized `update_title()` method and standardized state management.
+- **UI Improvements**: Added dynamic window title that displays the current filename.
+- **Shortcuts**: Added `Ctrl+O` (Open), `Ctrl+S` (Save), and `Ctrl+Shift+S` (Save As).
+- **Refactor**: Improved code maintainability with a centralized `update_title()` method and standardized state management.
 
 ### v0.4 (2026-02-11)
-- 🖱️ **Context Menu**: Added a standard right-click context menu to the main text area.
-- ✂️ **Standard Actions**: Integrated Cut, Copy, Paste, and Select All commands.
-- 📋 **System Clipboard**: Full integration with the system clipboard via standard event generation.
+- **Context Menu**: Added a standard right-click context menu to the main text area.
+- **Standard Actions**: Integrated Cut, Copy, Paste, and Select All commands.
+- **System Clipboard**: Full integration with the system clipboard via standard event generation.
 
 ### v0.3 (2026-02-10)
-- 🔍 **Find & Replace**: Added a robust Find/Replace system accessible via the menu or `Ctrl+H`.
-- ✨ **Floating Dialog**: New "stay-on-top" dialog window for easier searching.
-- 🟡 **Highlighting**: Matches are now highlighted in yellow for better visibility.
-- 🔄 **Advanced Features**: Includes "Find Next", "Replace" (single), "Replace All", wrap-around search, and auto-scrolling.
+- **Find & Replace**: Added a robust Find/Replace system accessible via the menu or `Ctrl+H`.
+- **Floating Dialog**: New "stay-on-top" dialog window for easier searching.
+- **Highlighting**: Matches are now highlighted in yellow for better visibility.
+- **Advanced Features**: Includes "Find Next", "Replace" (single), "Replace All", wrap-around search, and auto-scrolling.
 
 
 ### v0.2 (2026-02-08)
-- ✨ **Zoom / Text Size**: Added dynamic text scaling via UI controls and keyboard shortcuts (Ctrl+Scroll, Ctrl+/-, Ctrl+Plus).
-- 🎨 **Icon Fix**: Properly integrated custom application icon into the build and window frame.
-- 🤖 **Release Automation**: Fully automated CI/CD pipeline for Windows executables via GitHub Actions.
+- **Zoom / Text Size**: Added dynamic text scaling via UI controls and keyboard shortcuts (Ctrl+Scroll, Ctrl+/-, Ctrl+Plus).
+- **Icon Fix**: Properly integrated custom application icon into the build and window frame.
+- **Release Automation**: Fully automated CI/CD pipeline for Windows executables via GitHub Actions.
 
 ### v0.1
 - Initial release with basic text editing, Regex search, and dark mode support.
