@@ -3,15 +3,30 @@
 ![Build Status](https://github.com/DQ-Labs/paige/actions/workflows/build.yml/badge.svg)
 
 ## The "Why"
-A lightweight, secure text editor built in Python/CustomTkinter. Designed to replace Notepad (or Notepad++) without the unnecessary bloat or security risks of modern "electron-heavy" editors. It's built by a sysadmin, for sysadmins, focusing on speed and stability when opening large logs or configuration files.
+Paige is a **Dumb Text Editor** — and that's the entire point.
+
+Modern editors like Windows Notepad, VS Code, and Notepad++ have grown into complex document *renderers*. They interpret Markdown, resolve protocol handlers (`file://`, `ms-appinstaller://`), and spin up entire language server processes. Every one of those features is an attack surface.
+
+Paige refuses to render *anything*. It reads bytes and displays them as text. That's it. No Markdown preview. No protocol resolution. No shell execution. No cloud sync. The RCE attack surface found in modern Notepad **does not exist here**, because the feature that enables it doesn't exist either.
+
+Built by a sysadmin, for sysadmins — optimized for opening multi-gigabyte log files, editing configs over RDP, and not having to think about whether your editor is a malware vector.
+
+## Security Design
+- **No rendering engine.** Text is displayed verbatim. Markdown, HTML, and RTF are treated as plain strings.
+- **No protocol handlers.** `file://`, `http://`, `ms-appinstaller://`, and similar URIs are never resolved or executed.
+- **No shell integration.** Paige never calls `subprocess`, `os.system`, or equivalent. Opening a file means `open(path, 'r')`.
+- **No telemetry.** Zero network calls. Your files never leave your machine.
+- **UTF-8 by default.** Falls back to `latin-1` on decode failure, displays a warning instead of crashing or silently corrupting data.
 
 ## Features
-- **Dark Mode**: Forced by default for eye comfort (`customtkinter` dark theme).
-- **Large File Support**: Optimized handling by disabling word wrap by default, preventing GUI lag on million-line log files.
-- **Search**: Built-in find functionality (Ctrl+F).
-- **Context Menu**: Right-click support for Cut, Copy, Paste, and Select All.
-- **Cross-Platform**: Developed on Windows & Linux; deployed as a native Windows executable.
-- **Security**: No external telemetry or cloud sync. Your data stays on your machine.
+- **Dark/Light Theme Toggle**: Switch appearance on the fly without restarting.
+- **Unsaved Changes Guard**: Prompted before closing or overwriting unsaved work.
+- **Large File Warning**: Alerts you before opening files > 50 MB that may cause lag.
+- **Search**: Built-in find bar (Ctrl+F) and floating Find/Replace dialog (Ctrl+H).
+- **Word Wrap Toggle**: Disabled by default for clean log viewing; toggle via checkbox.
+- **Text Zoom**: Ctrl+Scroll, Ctrl++/- to resize text dynamically.
+- **Context Menu**: Right-click for Cut, Copy, Paste, Select All.
+- **Cross-Platform**: Developed on Windows & Linux; deployed as a portable Windows executable.
 
 ## Installation
 
@@ -43,6 +58,13 @@ If you'd like to run from source or contribute:
 
 ## Release Notes
 
+### v0.6 (2026-02-23)
+- **Unsaved Changes Guard**: App now tracks unsaved changes and prompts the user before closing or discarding work.
+- **Theme Toggle**: New "Toggle Theme" menu button switches between Dark and Light modes at runtime.
+- **Large File Warning**: Opening files > 50 MB now triggers a Yes/No confirmation dialog.
+- **Dependency Pinning**: `customtkinter==5.2.2` and `pyinstaller==6.19.0` pinned in `requirements.txt` for reproducible builds.
+- **Security Documentation**: README updated to explicitly document Paige's "Dumb Editor" security model and reference CVE-2026-20841.
+
 ### v0.5 (2026-02-12)
 - **UI Improvements**: Added dynamic window title that displays the current filename.
 - **Shortcuts**: Added `Ctrl+O` (Open), `Ctrl+S` (Save), and `Ctrl+Shift+S` (Save As).
@@ -58,7 +80,6 @@ If you'd like to run from source or contribute:
 - **Floating Dialog**: New "stay-on-top" dialog window for easier searching.
 - **Highlighting**: Matches are now highlighted in yellow for better visibility.
 - **Advanced Features**: Includes "Find Next", "Replace" (single), "Replace All", wrap-around search, and auto-scrolling.
-
 
 ### v0.2 (2026-02-08)
 - **Zoom / Text Size**: Added dynamic text scaling via UI controls and keyboard shortcuts (Ctrl+Scroll, Ctrl+/-, Ctrl+Plus).

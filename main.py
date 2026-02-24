@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import tkinter as tk
+from tkinter import messagebox
 import os
 import sys
 
@@ -48,6 +49,7 @@ class PaigeApp(ctk.CTk):
         self.btn_save = self._create_menu_button("Save", self.save_file)
         self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
         self.btn_find_replace = self._create_menu_button("Find/Replace", self.open_find_replace_dialog)
+        self.btn_toggle_theme = self._create_menu_button("Toggle Theme", self.toggle_theme)
 
         # Text Size Controls
         self.font_size = 14  # Default font size
@@ -133,6 +135,8 @@ class PaigeApp(ctk.CTk):
         # State & Bindings
         # --------------------------------------------------------------------------
         self.current_file = None
+        self.text_modified = False
+        self.appearance_mode = "Dark"  # Track current theme
         
         # Keybindings
         self.bind("<Control-o>", lambda e: self.open_file())
@@ -147,14 +151,56 @@ class PaigeApp(ctk.CTk):
         self.bind("<Control-minus>", lambda e: self.update_font_size(self.font_size - 1))
         self.textbox.bind("<Control-MouseWheel>", self._on_mouse_wheel_zoom)
         
-        # Status Bar Updates
-        self.textbox.bind("<KeyRelease>", lambda e: self.update_status_bar())
+        # Status Bar & Modified-state Updates
+        self.textbox.bind("<KeyRelease>", self._on_text_key_release)
         self.textbox.bind("<ButtonRelease>", lambda e: self.update_status_bar())
+        
+        # Window close handler
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def toggle_word_wrap(self):
         """Toggles line wrapping."""
         mode = "word" if self.wrap_var.get() else "none"
         self.textbox.configure(wrap=mode)
+
+    def _on_text_key_release(self, event=None):
+        """Handles KeyRelease: updates status bar and marks file as modified."""
+        self.text_modified = True
+        self.update_status_bar()
+
+    def toggle_theme(self):
+        """Switches between Dark and Light appearance modes."""
+        if self.appearance_mode == "Dark":
+            self.appearance_mode = "Light"
+        else:
+            self.appearance_mode = "Dark"
+        ctk.set_appearance_mode(self.appearance_mode)
+
+    def check_unsaved_changes(self):
+        """Returns True if it is safe to proceed (no unsaved changes, or user chose to handle them)."""
+        if not self.text_modified:
+            return True
+        
+        response = messagebox.askyesnocancel(
+            "Unsaved Changes",
+            "You have unsaved changes. Do you want to save before continuing?"
+        )
+        
+        if response is None:
+            # Cancel — abort the action entirely
+            return False
+        elif response:
+            # Yes — save first, then proceed
+            self.save_file()
+            return True
+        else:
+            # No — discard changes and proceed
+            return True
+
+    def on_closing(self):
+        """Called when the user clicks the window close (X) button."""
+        if self.check_unsaved_changes():
+            self.destroy()
 
     def update_font_size(self, new_size):
         """Updates the font size of the text area."""
@@ -432,6 +478,17 @@ class PaigeApp(ctk.CTk):
         if not file_path:
             return
 
+        # --- File Size Warning ---
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 50:
+            proceed = messagebox.askyesno(
+                "Large File Warning",
+                f"The file '{os.path.basename(file_path)}' is {file_size_mb:.1f}MB. "
+                f"Opening large files may cause the application to hang. Do you want to continue?"
+            )
+            if not proceed:
+                return
+
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -440,8 +497,9 @@ class PaigeApp(ctk.CTk):
             self.textbox.insert("1.0", content)
             
             self.current_file = file_path
+            self.text_modified = False
             self.update_title()
-            
+
         except UnicodeDecodeError:
             self._show_error("Encoding Error", "Could not decode file with UTF-8. Binary or legacy format suspected.")
         except Exception as e:
@@ -473,6 +531,7 @@ class PaigeApp(ctk.CTk):
                 f.write(content)
             
             self.current_file = file_path
+            self.text_modified = False
             self.update_title()
             
         except Exception as e:
