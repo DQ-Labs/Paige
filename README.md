@@ -58,6 +58,9 @@ If you'd like to run from source or contribute:
 
 ## Release Notes
 
+### v0.6.1 (2026-02-23)
+- **Patch**: Fixed application icon bundling in Windows executable.
+
 ### v0.6 (2026-02-23)
 - **Unsaved Changes Guard**: App now tracks unsaved changes and prompts the user before closing or discarding work.
 - **Theme Toggle**: New "Toggle Theme" menu button switches between Dark and Light modes at runtime.
