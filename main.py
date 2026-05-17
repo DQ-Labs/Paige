@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import messagebox
 import os
 import sys
+import tempfile
 
 # ------------------------------------------------------------------------------
 # Configuration & Vibe
@@ -137,6 +138,7 @@ class PaigeApp(ctk.CTk):
         self.current_file = None
         self.text_modified = False
         self.appearance_mode = "Dark"  # Track current theme
+        self.file_newline = os.linesep  # Preserve original line endings on round-trip
         
         # Keybindings
         self.bind("<Control-o>", lambda e: self.open_file())
@@ -180,21 +182,20 @@ class PaigeApp(ctk.CTk):
         """Returns True if it is safe to proceed (no unsaved changes, or user chose to handle them)."""
         if not self.text_modified:
             return True
-        
+
         response = messagebox.askyesnocancel(
             "Unsaved Changes",
             "You have unsaved changes. Do you want to save before continuing?"
         )
-        
+
         if response is None:
-            # Cancel — abort the action entirely
             return False
         elif response:
-            # Yes — save first, then proceed
-            self.save_file()
-            return True
+            # Only proceed if the save actually succeeded — otherwise the user
+            # cancelled the Save As dialog or hit a write error, and proceeding
+            # would silently destroy their work.
+            return self.save_file()
         else:
-            # No — discard changes and proceed
             return True
 
     def on_closing(self):
@@ -257,8 +258,6 @@ class PaigeApp(ctk.CTk):
             text_widget.mark_set("insert", end_pos)
             text_widget.see(pos)
         else:
-            # Standard popup for not found
-            from tkinter import messagebox
             messagebox.showinfo("Find", f"No matches found for '{query}'")
 
     # --------------------------------------------------------------------------
@@ -350,7 +349,6 @@ class PaigeApp(ctk.CTk):
             # Wrap around to beginning
             pos = text_widget.search(query, "1.0", stopindex="end", nocase=True)
             if not pos:
-                from tkinter import messagebox
                 messagebox.showinfo("Find", f"No matches found for '{query}'", parent=dialog)
                 dialog.last_search_pos = "1.0"
                 return
@@ -381,7 +379,9 @@ class PaigeApp(ctk.CTk):
             start, end = ranges[0], ranges[1]
             text_widget.delete(start, end)
             text_widget.insert(start, replacement)
-            
+            self.text_modified = True
+            self.update_status_bar()
+
             # Update search position
             dialog.last_search_pos = f"{start}+{len(replacement)}c"
             
@@ -421,12 +421,14 @@ class PaigeApp(ctk.CTk):
             # Move position forward
             pos = f"{pos}+{len(replacement)}c"
             count += 1
-        
+
+        if count > 0:
+            self.text_modified = True
+            self.update_status_bar()
+
         # Reset search position
         dialog.last_search_pos = "1.0"
-        
-        # Show confirmation
-        from tkinter import messagebox
+
         if count > 0:
             messagebox.showinfo("Replace All", f"Replaced {count} occurrence(s).", parent=dialog)
         else:
@@ -454,32 +456,42 @@ class PaigeApp(ctk.CTk):
     def _create_menu_button(self, text, command):
         """Helper to create menu-like buttons."""
         btn = ctk.CTkButton(
-            self.menu_bar, 
-            text=text, 
-            width=50, 
-            fg_color="transparent", 
+            self.menu_bar,
+            text=text,
+            width=50,
+            fg_color="transparent",
             hover_color=("gray70", "gray30"),
             text_color=("gray10", "gray90"),
             anchor="center",
             command=command
         )
         btn.pack(side="left", padx=2, pady=2)
+        return btn
 
     # --------------------------------------------------------------------------
     # File Operations
     # --------------------------------------------------------------------------
     def open_file(self):
         """Opens a file and loads content into the textbox."""
+        # Guard against discarding unsaved work when replacing the buffer.
+        if not self.check_unsaved_changes():
+            return
+
         file_path = ctk.filedialog.askopenfilename(
             title="Open File",
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
         )
-        
+
         if not file_path:
             return
 
         # --- File Size Warning ---
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        try:
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        except OSError as e:
+            self._show_error("Open Error", f"Could not open file:\n{str(e)}")
+            return
+
         if file_size_mb > 50:
             proceed = messagebox.askyesno(
                 "Large File Warning",
@@ -490,12 +502,24 @@ class PaigeApp(ctk.CTk):
                 return
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            
+            # newline="" disables universal-newline translation so we can
+            # detect the file's original line ending and preserve it on save.
+            with open(file_path, "r", encoding="utf-8", newline="") as f:
+                raw = f.read()
+
+            if "\r\n" in raw:
+                self.file_newline = "\r\n"
+            elif "\r" in raw:
+                self.file_newline = "\r"
+            else:
+                self.file_newline = "\n"
+
+            # Normalize to \n for the Tk widget (it works in \n internally).
+            content = raw.replace("\r\n", "\n").replace("\r", "\n")
+
             self.textbox.delete("1.0", "end")
             self.textbox.insert("1.0", content)
-            
+
             self.current_file = file_path
             self.text_modified = False
             self.update_title()
@@ -506,36 +530,65 @@ class PaigeApp(ctk.CTk):
             self._show_error("Open Error", f"Could not open file:\n{str(e)}")
 
     def save_file(self):
-        """Saves the current file. Defaults to Save As if new."""
+        """Saves the current file. Defaults to Save As if new. Returns True on success."""
         if self.current_file:
-            self._write_to_file(self.current_file)
-        else:
-            self.save_as_file()
+            return self._write_to_file(self.current_file)
+        return self.save_as_file()
 
     def save_as_file(self):
-        """Opens prompt to save file as new path."""
+        """Opens prompt to save file as new path. Returns True on success."""
         file_path = ctk.filedialog.asksaveasfilename(
             title="Save As",
             defaultextension=".txt",
             filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
         )
-        
-        if file_path:
-            self._write_to_file(file_path)
+
+        if not file_path:
+            return False
+        return self._write_to_file(file_path)
 
     def _write_to_file(self, file_path):
-        """Internal method to write content to disk safely."""
+        """Atomically write content to disk. Returns True on success."""
+        # Write to a sibling temp file and os.replace() into place so a crash
+        # mid-write can never leave the user with a truncated original.
+        content = self.textbox.get("1.0", "end-1c")
+        if self.file_newline != "\n":
+            content = content.replace("\n", self.file_newline)
+
+        target_dir = os.path.dirname(os.path.abspath(file_path)) or "."
+        tmp_fd = None
+        tmp_path = None
         try:
-            content = self.textbox.get("1.0", "end-1c")
-            with open(file_path, "w", encoding="utf-8") as f:
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                prefix=".paige-", suffix=".tmp", dir=target_dir
+            )
+            with os.fdopen(tmp_fd, "w", encoding="utf-8", newline="") as f:
+                tmp_fd = None  # fdopen now owns the descriptor
                 f.write(content)
-            
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, file_path)
+            tmp_path = None
+
             self.current_file = file_path
             self.text_modified = False
             self.update_title()
-            
+            return True
+
         except Exception as e:
             self._show_error("Save Error", f"Could not save file:\n{str(e)}")
+            return False
+        finally:
+            if tmp_fd is not None:
+                try:
+                    os.close(tmp_fd)
+                except OSError:
+                    pass
+            if tmp_path is not None and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 
     # --------------------------------------------------------------------------
     # Context Menu Methods
@@ -565,11 +618,9 @@ class PaigeApp(ctk.CTk):
         self.textbox._textbox.tag_add("sel", "1.0", "end")
         self.textbox._textbox.mark_set("insert", "1.0")
         self.textbox._textbox.see("insert")
-        return "break"
 
     def _show_error(self, title, message):
         """Displays error using standard tkinter messagebox."""
-        from tkinter import messagebox
         messagebox.showerror(title, message)
 
 if __name__ == "__main__":
