@@ -25,6 +25,8 @@ Paige's security model is "do less." Every item below is something the editor de
 ## Features
 - **Dark/Light Theme Toggle** — switch appearance on the fly without restarting.
 - **Unsaved-Changes Guard** — prompts before close, reopen, or discard; cancelling the save dialog aborts the action instead of silently dropping your work.
+- **External-Change Detection** — if a file is modified on disk after you opened it, Paige asks before overwriting on save, so a colleague's concurrent edit doesn't get clobbered.
+- **Read-Only Mode** — checkbox toggle, plus auto-enabled when you open a file you don't have write permission to. The text widget still lets you select and copy; Save and Replace simply refuse.
 - **Atomic Saves** — crash-safe writes via temp-file + rename, with full `fsync` before commit.
 - **Line-Ending Preservation** — opens CRLF/LF/CR and writes the same style back out.
 - **Large File Warning** — confirmation prompt before opening files over 50 MB.
@@ -33,6 +35,7 @@ Paige's security model is "do less." Every item below is something the editor de
 - **Text Zoom** — `Ctrl+Scroll` or `Ctrl++`/`Ctrl+-` to resize dynamically.
 - **Context Menu** — right-click for Cut, Copy, Paste, Select All.
 - **Command-Line Open** — `paige.exe path\to\file.log` opens the file directly; nonexistent paths start an empty buffer pre-bound to that name (Notepad-style).
+- **File Type Registration** — *File Types…* menu lets you register Paige with Windows for `.txt` / `.log` / `.conf` / `.cfg` / `.ini` / `.env` (and optionally `.md` / `.json` / `.yaml` / `.yml` / `.xml`). Per-user only — no admin required, no system-wide changes.
 - **About / Version Info** — press `F1` or click About. The version is also embedded in the executable's Windows file metadata, so right-click → Properties → Details shows it.
 - **Portable Windows Build** — single `.exe`, no installer, no registry writes, no admin rights.
 
@@ -45,7 +48,12 @@ Download the latest `Paige.exe` from the [Releases page](https://github.com/DQ-L
 ```cmd
 Paige.exe C:\logs\app.log
 ```
-Tip: put `Paige.exe` somewhere on your `PATH` (e.g. `%USERPROFILE%\bin`) and you can launch it from any shell. You can also set Paige as the default opener for `.log` / `.conf` / `.txt` via right-click → *Open With* → *Choose another app*.
+Tip: put `Paige.exe` somewhere on your `PATH` (e.g. `%USERPROFILE%\bin`) and you can launch it from any shell.
+
+**Becoming the default editor:**
+1. Launch Paige, click **File Types…** in the menu bar, tick the extensions you want, and click *Register Selected*. This adds Paige to Windows' *Open With* menu for those types — per-user, no admin required.
+2. Right-click any file of that type → *Properties* → *Change…* → pick Paige. (Windows requires this manual step for setting defaults; apps cannot do it programmatically.)
+3. *Remove All* in the same dialog cleanly unregisters Paige if you change your mind.
 
 **Verifying the download.** GitHub records a SHA-256 digest for each release asset (shown on the Releases page under the asset name). You can confirm the file you downloaded matches it:
 ```powershell
@@ -78,6 +86,13 @@ If you'd like to run from source or contribute:
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
 
 ## Release Notes
+
+### v0.9 (2026-05-27) — Road to 1.0, part 2: trust on real files
+This release answers the question *"can I trust Paige with my live config files?"* — three related features for editing real files on a real system.
+
+- **Read-Only mode.** New checkbox in the menu bar; title shows `[Read-Only]`, Save and Replace refuse, Find still works. Auto-enabled when you open a file you lack write permission for (e.g., a system log as a non-admin user). The text widget still supports selection and copy in this mode, so it's usable as a viewer.
+- **External-change detection.** Paige records the file's `mtime`+`size` (nanosecond precision) on every load and save. At save time, if the on-disk file has changed since you opened it, you get a prompt before overwriting — so a colleague's concurrent edit doesn't get silently clobbered. Save As to a new path skips the check (it's an intentional new write).
+- **File type registration.** New *File Types…* menu opens a small dialog to register Paige with Windows for common text-ish extensions. Writes only to `HKCU\Software\Classes` — per-user, no admin, no system-wide changes. Adds Paige to *Open With*; users still pick the default via Windows' Properties UI (apps cannot programmatically claim defaults, by Microsoft's design). One-click *Remove All* cleanly unregisters.
 
 ### v0.8 (2026-05-16) — Road to 1.0, part 1
 - **Command-line file opening.** `Paige.exe somefile.log` now opens that file directly. Nonexistent paths start an empty buffer pre-bound to that name, so `Ctrl+S` creates it (matches Notepad's behavior). Makes file associations and right-click → *Open With* finally useful.

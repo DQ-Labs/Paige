@@ -5,7 +5,7 @@ import os
 import sys
 import tempfile
 
-__version__ = "0.8"
+__version__ = "0.9"
 
 # ------------------------------------------------------------------------------
 # Configuration & Vibe
@@ -53,6 +53,7 @@ class PaigeApp(ctk.CTk):
         self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
         self.btn_find_replace = self._create_menu_button("Find/Replace", self.open_find_replace_dialog)
         self.btn_toggle_theme = self._create_menu_button("Toggle Theme", self.toggle_theme)
+        self.btn_file_types = self._create_menu_button("File Types...", self.show_file_types_dialog)
         self.btn_about = self._create_menu_button("About", self.show_about)
 
         # Text Size Controls
@@ -79,12 +80,22 @@ class PaigeApp(ctk.CTk):
         # Word Wrap Toggle
         self.wrap_var = ctk.BooleanVar(value=False)
         self.wrap_check = ctk.CTkCheckBox(
-            self.menu_bar, text="Word Wrap", 
-            variable=self.wrap_var, 
+            self.menu_bar, text="Word Wrap",
+            variable=self.wrap_var,
             command=self.toggle_word_wrap,
             width=100
         )
         self.wrap_check.pack(side="right", padx=10)
+
+        # Read-Only Toggle
+        self.read_only_var = ctk.BooleanVar(value=False)
+        self.read_only_check = ctk.CTkCheckBox(
+            self.menu_bar, text="Read-Only",
+            variable=self.read_only_var,
+            command=self.toggle_read_only,
+            width=100
+        )
+        self.read_only_check.pack(side="right", padx=10)
 
         # 2. Find Bar (Hidden by default)
         self.find_bar = ctk.CTkFrame(self, corner_radius=0, height=40)
@@ -142,6 +153,10 @@ class PaigeApp(ctk.CTk):
         self.text_modified = False
         self.appearance_mode = "Dark"  # Track current theme
         self.file_newline = os.linesep  # Preserve original line endings on round-trip
+        # Track on-disk file stat to detect external modifications before save.
+        # Nanosecond precision avoids false positives from filesystem mtime resolution.
+        self.file_mtime_ns = None
+        self.file_size = None
         
         # Keybindings
         self.bind("<Control-o>", lambda e: self.open_file())
@@ -204,6 +219,11 @@ class PaigeApp(ctk.CTk):
             # Only proceed if the save actually succeeded — otherwise the user
             # cancelled the Save As dialog or hit a write error, and proceeding
             # would silently destroy their work.
+            #
+            # In read-only mode, save_file() always refuses; redirect to Save As
+            # so the user has a working path forward instead of a refusal loop.
+            if self.read_only_var.get():
+                return self.save_as_file()
             return self.save_file()
         else:
             return True
@@ -374,9 +394,12 @@ class PaigeApp(ctk.CTk):
 
     def _replace_current(self, dialog, find_entry, replace_entry):
         """Replaces the currently highlighted match and finds the next one."""
+        if self.read_only_var.get():
+            messagebox.showinfo("Read-Only", "Cannot replace: Paige is in read-only mode.", parent=dialog)
+            return
         query = find_entry.get()
         replacement = replace_entry.get()
-        
+
         if not query:
             return
         
@@ -403,9 +426,12 @@ class PaigeApp(ctk.CTk):
 
     def _replace_all(self, dialog, find_entry, replace_entry):
         """Replaces all occurrences of the search term in the document."""
+        if self.read_only_var.get():
+            messagebox.showinfo("Read-Only", "Cannot replace: Paige is in read-only mode.", parent=dialog)
+            return
         query = find_entry.get()
         replacement = replace_entry.get()
-        
+
         if not query:
             return
         
@@ -447,9 +473,12 @@ class PaigeApp(ctk.CTk):
     def update_title(self):
         """Updates the window title based on current file state."""
         if self.current_file:
-            self.title(f"Paige - {os.path.basename(self.current_file)}")
+            title = f"Paige - {os.path.basename(self.current_file)}"
         else:
-            self.title("Paige")
+            title = "Paige"
+        if self.read_only_var.get():
+            title += "  [Read-Only]"
+        self.title(title)
 
     def update_status_bar(self):
         """Updates the line/col/char info."""
@@ -477,6 +506,40 @@ class PaigeApp(ctk.CTk):
         )
         btn.pack(side="left", padx=2, pady=2)
         return btn
+
+    # --------------------------------------------------------------------------
+    # Read-Only Mode
+    # --------------------------------------------------------------------------
+    def toggle_read_only(self):
+        """Called when the user clicks the Read-Only checkbox."""
+        self._apply_read_only_state()
+        self.update_title()
+
+    def _apply_read_only_state(self):
+        """Applies the current read-only flag to the textbox and Save button.
+
+        Tk's text widget in state="disabled" still allows mouse selection,
+        Ctrl+A, and Ctrl+C — which is exactly what we want for log viewing.
+        It blocks typing, paste, and programmatic delete/insert.
+        """
+        if self.read_only_var.get():
+            self.textbox._textbox.configure(state="disabled")
+            if self.btn_save is not None:
+                self.btn_save.configure(state="disabled")
+        else:
+            self.textbox._textbox.configure(state="normal")
+            if self.btn_save is not None:
+                self.btn_save.configure(state="normal")
+
+    def _record_file_stat(self, file_path):
+        """Records the on-disk file stat for external-change detection."""
+        try:
+            st = os.stat(file_path)
+            self.file_mtime_ns = st.st_mtime_ns
+            self.file_size = st.st_size
+        except OSError:
+            self.file_mtime_ns = None
+            self.file_size = None
 
     # --------------------------------------------------------------------------
     # File Operations
@@ -509,6 +572,8 @@ class PaigeApp(ctk.CTk):
         else:
             self.current_file = abs_path
             self.text_modified = False
+            self.file_mtime_ns = None
+            self.file_size = None
             self.update_title()
 
     def _load_file_from_disk(self, file_path):
@@ -545,11 +610,21 @@ class PaigeApp(ctk.CTk):
             # Normalize to \n for the Tk widget (it works in \n internally).
             content = raw.replace("\r\n", "\n").replace("\r", "\n")
 
+            # Briefly enable the widget in case we're loading while read-only.
+            self.textbox._textbox.configure(state="normal")
             self.textbox.delete("1.0", "end")
             self.textbox.insert("1.0", content)
 
             self.current_file = file_path
             self.text_modified = False
+            self._record_file_stat(file_path)
+
+            # Auto-enable read-only if the file isn't writable. Saves users
+            # from typing into a system log they don't have permission to edit.
+            file_is_writable = os.access(file_path, os.W_OK)
+            self.read_only_var.set(not file_is_writable)
+            self._apply_read_only_state()
+
             self.update_title()
 
         except UnicodeDecodeError:
@@ -559,6 +634,13 @@ class PaigeApp(ctk.CTk):
 
     def save_file(self):
         """Saves the current file. Defaults to Save As if new. Returns True on success."""
+        if self.read_only_var.get():
+            messagebox.showinfo(
+                "Read-Only",
+                "Paige is in read-only mode. Toggle Read-Only off to save, "
+                "or use Save As to save a copy."
+            )
+            return False
         if self.current_file:
             return self._write_to_file(self.current_file)
         return self.save_as_file()
@@ -577,6 +659,28 @@ class PaigeApp(ctk.CTk):
 
     def _write_to_file(self, file_path):
         """Atomically write content to disk. Returns True on success."""
+        # External-change check: only when overwriting the file we originally
+        # loaded. Save As to a new path is intentional — skip the check.
+        if (
+            file_path == self.current_file
+            and self.file_mtime_ns is not None
+            and os.path.exists(file_path)
+        ):
+            try:
+                st = os.stat(file_path)
+                if st.st_mtime_ns != self.file_mtime_ns or st.st_size != self.file_size:
+                    proceed = messagebox.askyesno(
+                        "File Changed on Disk",
+                        f"'{os.path.basename(file_path)}' has been modified on disk "
+                        f"since you opened it.\n\nOverwrite with your version?"
+                    )
+                    if not proceed:
+                        return False
+            except OSError:
+                # Stat failed for some reason; fall through and let the write
+                # itself surface any real error.
+                pass
+
         # Write to a sibling temp file and os.replace() into place so a crash
         # mid-write can never leave the user with a truncated original.
         content = self.textbox.get("1.0", "end-1c")
@@ -600,6 +704,7 @@ class PaigeApp(ctk.CTk):
 
             self.current_file = file_path
             self.text_modified = False
+            self._record_file_stat(file_path)
             self.update_title()
             return True
 
@@ -650,6 +755,212 @@ class PaigeApp(ctk.CTk):
     def _show_error(self, title, message):
         """Displays error using standard tkinter messagebox."""
         messagebox.showerror(title, message)
+
+    # --------------------------------------------------------------------------
+    # File Type Registration (Windows only)
+    # --------------------------------------------------------------------------
+    # Default set of extensions we offer to register. Conservative — these
+    # are formats Paige is well-suited for (configs, logs, plain text) and
+    # avoids stepping on richer editors' toes (e.g. no .py / .json by default).
+    FILE_TYPES_DEFAULT = [".txt", ".log", ".conf", ".cfg", ".ini", ".env"]
+    FILE_TYPES_OPTIONAL = [".md", ".json", ".yaml", ".yml", ".xml"]
+    PROGID = "Paige.TextFile"
+
+    def show_file_types_dialog(self):
+        """Opens the file-type registration dialog (Windows only)."""
+        if os.name != "nt":
+            messagebox.showinfo(
+                "File Types",
+                "File type registration is a Windows-only feature."
+            )
+            return
+        if not getattr(sys, "frozen", False):
+            messagebox.showinfo(
+                "File Types",
+                "File type registration is only available in the built Paige.exe.\n\n"
+                "Running from source would register the Python interpreter, "
+                "which isn't useful."
+            )
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Paige File Type Registration")
+        dialog.geometry("440x440")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+
+        # Header
+        ctk.CTkLabel(
+            dialog, text="Register Paige with Windows",
+            font=("Segoe UI", 14, "bold")
+        ).pack(pady=(15, 4))
+
+        ctk.CTkLabel(
+            dialog,
+            text=(
+                "Adds Paige to the 'Open With' menu for the selected file types.\n"
+                "Changes apply to your user account only — no admin required.\n"
+                "After registering, set Paige as default via right-click → "
+                "Properties → Change."
+            ),
+            font=("Segoe UI", 10), justify="left", wraplength=400
+        ).pack(pady=(0, 12))
+
+        # Extension checkboxes
+        ext_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        ext_frame.pack(pady=4, padx=20, fill="x")
+
+        check_vars = {}
+        all_exts = self.FILE_TYPES_DEFAULT + self.FILE_TYPES_OPTIONAL
+        for i, ext in enumerate(all_exts):
+            var = ctk.BooleanVar(value=(ext in self.FILE_TYPES_DEFAULT))
+            check_vars[ext] = var
+            ctk.CTkCheckBox(
+                ext_frame, text=ext, variable=var, width=80
+            ).grid(row=i // 3, column=i % 3, sticky="w", padx=10, pady=4)
+
+        # Status label
+        status_label = ctk.CTkLabel(dialog, text="", font=("Segoe UI", 10))
+        status_label.pack(pady=(10, 4))
+
+        # Button frame
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=(8, 12))
+
+        def do_register():
+            chosen = [ext for ext, v in check_vars.items() if v.get()]
+            if not chosen:
+                status_label.configure(text="No extensions selected.")
+                return
+            try:
+                self._register_paige_filetypes(chosen)
+                self._notify_shell_assoc_changed()
+                status_label.configure(
+                    text=f"Registered Paige for: {', '.join(chosen)}"
+                )
+            except OSError as e:
+                status_label.configure(text=f"Failed: {e}")
+
+        def do_unregister():
+            try:
+                removed = self._unregister_paige_filetypes()
+                self._notify_shell_assoc_changed()
+                if removed:
+                    status_label.configure(text="Paige registration removed.")
+                else:
+                    status_label.configure(text="Nothing to remove.")
+            except OSError as e:
+                status_label.configure(text=f"Failed: {e}")
+
+        ctk.CTkButton(btn_frame, text="Register Selected", width=140, command=do_register).pack(side="left", padx=6)
+        ctk.CTkButton(btn_frame, text="Remove All", width=120, command=do_unregister).pack(side="left", padx=6)
+        ctk.CTkButton(btn_frame, text="Close", width=80, command=dialog.destroy).pack(side="left", padx=6)
+
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        dialog.after(50, dialog.grab_set)
+
+    def _register_paige_filetypes(self, extensions):
+        """Writes per-user registry entries to expose Paige in Open With.
+
+        Uses HKCU\\Software\\Classes so no admin is required and Paige stays
+        portable. We register a ProgID and add it to each extension's
+        OpenWithProgids list — we deliberately do NOT claim default ownership
+        of the extension (Windows blocks programmatic UserChoice manipulation
+        anyway; users must pick the default via Explorer's UI).
+        """
+        import winreg
+        exe_path = os.path.abspath(sys.executable)
+
+        # ProgID: Paige.TextFile
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{self.PROGID}") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, "Paige Text File")
+            winreg.SetValueEx(k, "FriendlyTypeName", 0, winreg.REG_SZ, "Paige Text File")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{self.PROGID}\DefaultIcon") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, f'"{exe_path}",0')
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{self.PROGID}\shell\open\command") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, f'"{exe_path}" "%1"')
+
+        # Also register under Applications\ so we appear in Open With even
+        # without ProgID association.
+        app_name = os.path.basename(exe_path)
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\Applications\{app_name}") as k:
+            winreg.SetValueEx(k, "FriendlyAppName", 0, winreg.REG_SZ, "Paige")
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\Applications\{app_name}\shell\open\command") as k:
+            winreg.SetValueEx(k, "", 0, winreg.REG_SZ, f'"{exe_path}" "%1"')
+
+        # Per-extension: add to OpenWithProgids
+        for ext in extensions:
+            if not ext.startswith("."):
+                ext = "." + ext
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{ext}\OpenWithProgids") as k:
+                winreg.SetValueEx(k, self.PROGID, 0, winreg.REG_NONE, b"")
+
+    def _unregister_paige_filetypes(self):
+        """Removes all Paige registry entries. Returns True if anything existed."""
+        import winreg
+        removed_any = False
+
+        # Strip from every extension we might have registered.
+        for ext in self.FILE_TYPES_DEFAULT + self.FILE_TYPES_OPTIONAL:
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, rf"Software\Classes\{ext}\OpenWithProgids",
+                    0, winreg.KEY_SET_VALUE
+                ) as k:
+                    try:
+                        winreg.DeleteValue(k, self.PROGID)
+                        removed_any = True
+                    except FileNotFoundError:
+                        pass
+            except FileNotFoundError:
+                pass
+
+        # Recursively delete the ProgID tree.
+        if self._delete_reg_tree(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{self.PROGID}"):
+            removed_any = True
+
+        # And the Applications\ entry.
+        exe_name = os.path.basename(os.path.abspath(sys.executable))
+        if self._delete_reg_tree(
+            winreg.HKEY_CURRENT_USER, rf"Software\Classes\Applications\{exe_name}"
+        ):
+            removed_any = True
+
+        return removed_any
+
+    @staticmethod
+    def _delete_reg_tree(root, path):
+        """Recursively delete a registry key. Returns True if it existed."""
+        import winreg
+        try:
+            with winreg.OpenKey(root, path) as k:
+                subkeys = []
+                i = 0
+                while True:
+                    try:
+                        subkeys.append(winreg.EnumKey(k, i))
+                        i += 1
+                    except OSError:
+                        break
+        except FileNotFoundError:
+            return False
+        for sub in subkeys:
+            PaigeApp._delete_reg_tree(root, f"{path}\\{sub}")
+        try:
+            winreg.DeleteKey(root, path)
+        except OSError:
+            return False
+        return True
+
+    @staticmethod
+    def _notify_shell_assoc_changed():
+        """Tell Explorer to pick up file-association changes immediately."""
+        try:
+            import ctypes
+            # SHCNE_ASSOCCHANGED = 0x08000000, SHCNF_IDLIST = 0
+            ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)
+        except Exception:
+            pass
 
     # --------------------------------------------------------------------------
     # About Dialog
