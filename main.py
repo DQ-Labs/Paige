@@ -1,25 +1,118 @@
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox
+import json
 import os
+import re
 import sys
 import tempfile
 
-__version__ = "0.9"
+__version__ = "0.10"
 
 # ------------------------------------------------------------------------------
 # Configuration & Vibe
 # ------------------------------------------------------------------------------
-ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
+# Note: ctk.set_appearance_mode() is called in __main__ after loading settings,
+# so the saved theme is honored before the first widget is created.
+
+RECENT_FILES_MAX = 10
+GEOMETRY_RE = re.compile(r"^\d+x\d+([+-]\d+[+-]\d+)?$")
+
+
+# ------------------------------------------------------------------------------
+# Settings persistence
+# ------------------------------------------------------------------------------
+def _settings_path():
+    """Returns the per-user settings file path for the current OS."""
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "Paige", "settings.json")
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/Paige/settings.json")
+    # Linux / BSD: XDG Base Directory spec.
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(xdg, "paige", "settings.json")
+
+
+def _load_settings():
+    """Reads settings.json. Returns {} on any failure — a corrupt or missing
+    prefs file must never prevent the editor from launching."""
+    try:
+        with open(_settings_path(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _save_settings(settings):
+    """Atomically writes settings to disk. Silently no-ops on failure;
+    settings persistence is best-effort, not a hard requirement."""
+    path = _settings_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    except OSError:
+        return
+
+    tmp_path = None
+    tmp_fd = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            prefix=".paige-settings-", suffix=".tmp",
+            dir=os.path.dirname(path)
+        )
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            tmp_fd = None  # fdopen now owns the descriptor
+            json.dump(settings, f, indent=2, sort_keys=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
+    except OSError:
+        pass
+    finally:
+        if tmp_fd is not None:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
+        if tmp_path is not None and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 class PaigeApp(ctk.CTk):
-    def __init__(self, initial_file=None):
+    def __init__(self, initial_file=None, settings=None):
         super().__init__()
+
+        settings = settings or {}
+
+        # Pull validated values out of settings, with defaults.
+        font_size = settings.get("font_size", 14)
+        if not isinstance(font_size, int) or not (10 <= font_size <= 30):
+            font_size = 14
+
+        appearance = settings.get("appearance_mode", "Dark")
+        if appearance not in ("Dark", "Light"):
+            appearance = "Dark"
+
+        word_wrap = bool(settings.get("word_wrap", False))
+
+        geom = settings.get("window_geometry", "900x700")
+        if not isinstance(geom, str) or not GEOMETRY_RE.match(geom):
+            geom = "900x700"
+
+        recents = settings.get("recent_files", [])
+        if not isinstance(recents, list):
+            recents = []
+        recents = [p for p in recents if isinstance(p, str)][:RECENT_FILES_MAX]
 
         # Window Setup
         self.title("Paige")
-        self.geometry("900x700")
+        self.geometry(geom)
+        self._pending_geometry = geom  # snapshot used at close time
 
         # Set Window Icon (Safe for Windows, ignored on Linux to avoid crashes)
         if os.name == 'nt':
@@ -49,6 +142,7 @@ class PaigeApp(ctk.CTk):
 
         # Menu Buttons
         self.btn_open = self._create_menu_button("Open", self.open_file)
+        self.btn_recent = self._create_menu_button("Recent", self._show_recent_menu)
         self.btn_save = self._create_menu_button("Save", self.save_file)
         self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
         self.btn_find_replace = self._create_menu_button("Find/Replace", self.open_find_replace_dialog)
@@ -57,8 +151,8 @@ class PaigeApp(ctk.CTk):
         self.btn_about = self._create_menu_button("About", self.show_about)
 
         # Text Size Controls
-        self.font_size = 14  # Default font size
-        
+        self.font_size = font_size  # restored from settings
+
         self.zoom_label = ctk.CTkLabel(self.menu_bar, text="Text Size:", font=("Segoe UI", 11))
         self.zoom_label.pack(side="right", padx=(10, 5))
         
@@ -68,7 +162,7 @@ class PaigeApp(ctk.CTk):
         )
         self.btn_zoom_out.pack(side="right", padx=2)
         
-        self.zoom_size_label = ctk.CTkLabel(self.menu_bar, text="14", font=("Segoe UI", 11), width=30)
+        self.zoom_size_label = ctk.CTkLabel(self.menu_bar, text=str(font_size), font=("Segoe UI", 11), width=30)
         self.zoom_size_label.pack(side="right", padx=2)
         
         self.btn_zoom_in = ctk.CTkButton(
@@ -78,7 +172,7 @@ class PaigeApp(ctk.CTk):
         self.btn_zoom_in.pack(side="right", padx=2)
 
         # Word Wrap Toggle
-        self.wrap_var = ctk.BooleanVar(value=False)
+        self.wrap_var = ctk.BooleanVar(value=word_wrap)
         self.wrap_check = ctk.CTkCheckBox(
             self.menu_bar, text="Word Wrap",
             variable=self.wrap_var,
@@ -112,12 +206,13 @@ class PaigeApp(ctk.CTk):
         self.btn_close_find.pack(side="right", padx=10)
 
         # 3. Main Text Area
+        initial_wrap = "word" if word_wrap else "none"
         self.textbox = ctk.CTkTextbox(
-            self, 
-            font=("Consolas", 14), 
+            self,
+            font=("Consolas", font_size),
             undo=True,
             corner_radius=0,
-            wrap="none"
+            wrap=initial_wrap
         )
         self.textbox.grid(row=2, column=0, sticky="nsew", padx=0, pady=0)
         
@@ -151,12 +246,14 @@ class PaigeApp(ctk.CTk):
         # --------------------------------------------------------------------------
         self.current_file = None
         self.text_modified = False
-        self.appearance_mode = "Dark"  # Track current theme
+        self.appearance_mode = appearance  # restored from settings
         self.file_newline = os.linesep  # Preserve original line endings on round-trip
         # Track on-disk file stat to detect external modifications before save.
         # Nanosecond precision avoids false positives from filesystem mtime resolution.
         self.file_mtime_ns = None
         self.file_size = None
+        # Recent files (most-recent first). Restored from settings.
+        self.recent_files = recents
         
         # Keybindings
         self.bind("<Control-o>", lambda e: self.open_file())
@@ -164,6 +261,7 @@ class PaigeApp(ctk.CTk):
         self.bind("<Control-S>", lambda e: self.save_as_file())
         self.bind("<Control-f>", lambda e: self.toggle_find_bar())
         self.bind("<Control-h>", lambda e: self.open_find_replace_dialog())
+        self.bind("<Control-g>", lambda e: self.show_goto_line())
         self.bind("<F1>", lambda e: self.show_about())
         
         # Zoom Keybindings
@@ -189,6 +287,7 @@ class PaigeApp(ctk.CTk):
         """Toggles line wrapping."""
         mode = "word" if self.wrap_var.get() else "none"
         self.textbox.configure(wrap=mode)
+        self._persist_settings()
 
     def _on_text_key_release(self, event=None):
         """Handles KeyRelease: updates status bar and marks file as modified."""
@@ -202,6 +301,7 @@ class PaigeApp(ctk.CTk):
         else:
             self.appearance_mode = "Dark"
         ctk.set_appearance_mode(self.appearance_mode)
+        self._persist_settings()
 
     def check_unsaved_changes(self):
         """Returns True if it is safe to proceed (no unsaved changes, or user chose to handle them)."""
@@ -231,17 +331,24 @@ class PaigeApp(ctk.CTk):
     def on_closing(self):
         """Called when the user clicks the window close (X) button."""
         if self.check_unsaved_changes():
+            # Snapshot the current geometry and flush settings to disk.
+            try:
+                self._pending_geometry = self.geometry()
+                self._persist_settings()
+            except Exception:
+                pass
             self.destroy()
 
     def update_font_size(self, new_size):
         """Updates the font size of the text area."""
         # Clamp the font size between 10 and 30
         new_size = max(10, min(30, new_size))
-        
+
         if new_size != self.font_size:
             self.font_size = new_size
             self.textbox.configure(font=("Consolas", self.font_size))
             self.zoom_size_label.configure(text=str(self.font_size))
+            self._persist_settings()
 
     def _on_mouse_wheel_zoom(self, event):
         """Handles Ctrl+MouseWheel for zooming."""
@@ -618,6 +725,7 @@ class PaigeApp(ctk.CTk):
             self.current_file = file_path
             self.text_modified = False
             self._record_file_stat(file_path)
+            self._add_to_recent(file_path)
 
             # Auto-enable read-only if the file isn't writable. Saves users
             # from typing into a system log they don't have permission to edit.
@@ -755,6 +863,146 @@ class PaigeApp(ctk.CTk):
     def _show_error(self, title, message):
         """Displays error using standard tkinter messagebox."""
         messagebox.showerror(title, message)
+
+    # --------------------------------------------------------------------------
+    # Settings persistence
+    # --------------------------------------------------------------------------
+    def _persist_settings(self):
+        """Snapshot current state to settings.json. Best-effort — never
+        raises into the UI; a failure to save prefs shouldn't disrupt edits."""
+        try:
+            _save_settings({
+                "version": 1,
+                "font_size": self.font_size,
+                "appearance_mode": self.appearance_mode,
+                "word_wrap": bool(self.wrap_var.get()),
+                "window_geometry": self._pending_geometry,
+                "recent_files": self.recent_files[:RECENT_FILES_MAX],
+            })
+        except Exception:
+            pass
+
+    # --------------------------------------------------------------------------
+    # Recent Files
+    # --------------------------------------------------------------------------
+    def _add_to_recent(self, file_path):
+        """Pushes a file path to the top of the recent list, deduped."""
+        # Normalize so the same file via different relative paths dedupes.
+        abs_path = os.path.abspath(file_path)
+        self.recent_files = [p for p in self.recent_files if os.path.abspath(p) != abs_path]
+        self.recent_files.insert(0, abs_path)
+        del self.recent_files[RECENT_FILES_MAX:]
+        self._persist_settings()
+
+    def _format_recent_label(self, path):
+        """Human-readable label for the Recent menu: 'filename  —  parent_dir'."""
+        name = os.path.basename(path) or path
+        parent = os.path.basename(os.path.dirname(path))
+        return f"{name}  —  {parent}" if parent else name
+
+    def _show_recent_menu(self):
+        """Pops up the Recent Files menu below the Recent button."""
+        menu = tk.Menu(self, tearoff=0)
+        if not self.recent_files:
+            menu.add_command(label="(no recent files)", state="disabled")
+        else:
+            for path in self.recent_files:
+                menu.add_command(
+                    label=self._format_recent_label(path),
+                    command=lambda p=path: self._open_from_recent(p),
+                )
+            menu.add_separator()
+            menu.add_command(label="Clear Recent Files", command=self._clear_recent)
+
+        # Position below the Recent button.
+        try:
+            x = self.btn_recent.winfo_rootx()
+            y = self.btn_recent.winfo_rooty() + self.btn_recent.winfo_height()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def _open_from_recent(self, path):
+        """Opens a file selected from the Recent menu, with the usual guard."""
+        if not self.check_unsaved_changes():
+            return
+        if not os.path.exists(path):
+            remove = messagebox.askyesno(
+                "File Not Found",
+                f"'{path}' no longer exists.\n\nRemove it from Recent Files?"
+            )
+            if remove:
+                self.recent_files = [p for p in self.recent_files if p != path]
+                self._persist_settings()
+            return
+        self._load_file_from_disk(path)
+
+    def _clear_recent(self):
+        """Empties the Recent Files list."""
+        self.recent_files = []
+        self._persist_settings()
+
+    # --------------------------------------------------------------------------
+    # Go to Line
+    # --------------------------------------------------------------------------
+    def show_goto_line(self):
+        """Small dialog to jump the cursor to a specific line number."""
+        text_widget = self.textbox._textbox
+        try:
+            cur_line = int(text_widget.index("insert").split(".")[0])
+            max_line = int(text_widget.index("end-1c").split(".")[0])
+        except (ValueError, tk.TclError):
+            cur_line, max_line = 1, 1
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Go to Line")
+        dialog.geometry("300x140")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+
+        self.update_idletasks()
+        px = self.winfo_rootx() + (self.winfo_width() // 2) - 150
+        py = self.winfo_rooty() + (self.winfo_height() // 2) - 70
+        dialog.geometry(f"+{max(0, px)}+{max(0, py)}")
+
+        ctk.CTkLabel(
+            dialog,
+            text=f"Go to line (1 – {max_line}):",
+            font=("Segoe UI", 11),
+        ).pack(pady=(15, 6))
+
+        entry = ctk.CTkEntry(dialog, width=140, justify="center")
+        entry.pack(pady=2)
+        entry.insert(0, str(cur_line))
+        entry.select_range(0, "end")
+        entry.focus_set()
+
+        status = ctk.CTkLabel(dialog, text="", font=("Segoe UI", 9), text_color="gray")
+        status.pack(pady=(2, 0))
+
+        def do_goto(event=None):
+            raw = entry.get().strip()
+            try:
+                line = int(raw)
+            except ValueError:
+                status.configure(text="Enter a number.")
+                return
+            if line < 1 or line > max_line:
+                status.configure(text=f"Must be between 1 and {max_line}.")
+                return
+            text_widget.mark_set("insert", f"{line}.0")
+            text_widget.see(f"{line}.0")
+            self.update_status_bar()
+            dialog.destroy()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=(6, 10))
+        ctk.CTkButton(btn_frame, text="Go", width=70, command=do_goto).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Cancel", width=70, command=dialog.destroy).pack(side="left", padx=5)
+
+        entry.bind("<Return>", do_goto)
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        dialog.after(50, dialog.grab_set)
 
     # --------------------------------------------------------------------------
     # File Type Registration (Windows only)
@@ -1032,6 +1280,14 @@ def _parse_cli_args(argv):
 
 
 if __name__ == "__main__":
+    settings = _load_settings()
+    # Apply the saved theme BEFORE the first widget is created so the
+    # initial paint matches the user's choice instead of flashing dark.
+    saved_theme = settings.get("appearance_mode", "Dark")
+    if saved_theme not in ("Dark", "Light"):
+        saved_theme = "Dark"
+    ctk.set_appearance_mode(saved_theme)
+
     initial_file = _parse_cli_args(sys.argv)
-    app = PaigeApp(initial_file=initial_file)
+    app = PaigeApp(initial_file=initial_file, settings=settings)
     app.mainloop()

@@ -31,6 +31,9 @@ Paige's security model is "do less." Every item below is something the editor de
 - **Line-Ending Preservation** — opens CRLF/LF/CR and writes the same style back out.
 - **Large File Warning** — confirmation prompt before opening files over 50 MB.
 - **Search** — inline find bar (`Ctrl+F`) and floating Find/Replace dialog (`Ctrl+H`), with case-insensitive wrap-around search.
+- **Go to Line** — `Ctrl+G` opens a quick jump dialog; pre-filled with the current line and shows the file's max line for context.
+- **Recent Files** — *Recent* menu remembers the last 10 files you opened; click to reopen with the usual unsaved-changes guard.
+- **Persisted Preferences** — theme, font size, word-wrap state, recent files, and window geometry are saved per-user (`%APPDATA%\Paige\settings.json` on Windows, XDG-compliant on Linux) and restored on next launch.
 - **Word Wrap Toggle** — off by default for log viewing; toggle via the checkbox in the menu bar.
 - **Text Zoom** — `Ctrl+Scroll` or `Ctrl++`/`Ctrl+-` to resize dynamically.
 - **Context Menu** — right-click for Cut, Copy, Paste, Select All.
@@ -86,6 +89,13 @@ If you'd like to run from source or contribute:
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
 
 ## Release Notes
+
+### v0.10 (2026-05-27) — Road to 1.0, part 3: state & navigation
+The last feature batch before 1.0. After this, the remaining work is verification (smoke tests + signed build provenance) rather than new functionality.
+
+- **Persisted preferences.** Theme, font size, word-wrap state, window geometry, and recent files now survive between launches. Stored in `%APPDATA%\Paige\settings.json` on Windows (XDG-compliant location on Linux/macOS), written atomically with the same temp-file + `os.replace` pattern as document saves. A corrupt or missing settings file is silently ignored — the editor always launches with defaults rather than crashing on prefs.
+- **Recent Files menu.** New *Recent* button between *Open* and *Save* shows the last 10 files you've opened, formatted as `filename — parent_dir` to disambiguate similarly-named files. *Clear Recent Files* at the bottom of the menu. If a file in the list no longer exists when clicked, you're offered the chance to remove it.
+- **Go to Line (`Ctrl+G`).** Small dialog, pre-populated with the current line and showing the file's max line for context. Validates input and clamps to range. Works in read-only mode — it's just navigation.
 
 ### v0.9 (2026-05-27) — Road to 1.0, part 2: trust on real files
 This release answers the question *"can I trust Paige with my live config files?"* — three related features for editing real files on a real system.
