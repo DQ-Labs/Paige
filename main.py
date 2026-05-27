@@ -5,6 +5,8 @@ import os
 import sys
 import tempfile
 
+__version__ = "0.8"
+
 # ------------------------------------------------------------------------------
 # Configuration & Vibe
 # ------------------------------------------------------------------------------
@@ -12,7 +14,7 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
 class PaigeApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, initial_file=None):
         super().__init__()
 
         # Window Setup
@@ -51,6 +53,7 @@ class PaigeApp(ctk.CTk):
         self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
         self.btn_find_replace = self._create_menu_button("Find/Replace", self.open_find_replace_dialog)
         self.btn_toggle_theme = self._create_menu_button("Toggle Theme", self.toggle_theme)
+        self.btn_about = self._create_menu_button("About", self.show_about)
 
         # Text Size Controls
         self.font_size = 14  # Default font size
@@ -146,6 +149,7 @@ class PaigeApp(ctk.CTk):
         self.bind("<Control-S>", lambda e: self.save_as_file())
         self.bind("<Control-f>", lambda e: self.toggle_find_bar())
         self.bind("<Control-h>", lambda e: self.open_find_replace_dialog())
+        self.bind("<F1>", lambda e: self.show_about())
         
         # Zoom Keybindings
         self.bind("<Control-plus>", lambda e: self.update_font_size(self.font_size + 1))
@@ -159,6 +163,12 @@ class PaigeApp(ctk.CTk):
         
         # Window close handler
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # Load a file passed on the command line, if any.
+        # If the path exists, open it; if not, behave like Notepad and start
+        # an empty buffer pre-bound to that path so Ctrl+S creates the file.
+        if initial_file:
+            self._open_initial_file(initial_file)
 
     def toggle_word_wrap(self):
         """Toggles line wrapping."""
@@ -472,7 +482,7 @@ class PaigeApp(ctk.CTk):
     # File Operations
     # --------------------------------------------------------------------------
     def open_file(self):
-        """Opens a file and loads content into the textbox."""
+        """Opens a file via dialog and loads it into the textbox."""
         # Guard against discarding unsaved work when replacing the buffer.
         if not self.check_unsaved_changes():
             return
@@ -485,7 +495,25 @@ class PaigeApp(ctk.CTk):
         if not file_path:
             return
 
-        # --- File Size Warning ---
+        self._load_file_from_disk(file_path)
+
+    def _open_initial_file(self, file_path):
+        """Handle a file path provided on the command line at startup.
+
+        Existing path → load it. Nonexistent path → start with an empty buffer
+        but pre-bind current_file so Ctrl+S creates the file. Matches Notepad.
+        """
+        abs_path = os.path.abspath(file_path)
+        if os.path.exists(abs_path):
+            self._load_file_from_disk(abs_path)
+        else:
+            self.current_file = abs_path
+            self.text_modified = False
+            self.update_title()
+
+    def _load_file_from_disk(self, file_path):
+        """Read a file from disk into the textbox, with size warning and
+        line-ending preservation. Used by both open_file and CLI startup."""
         try:
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         except OSError as e:
@@ -623,6 +651,76 @@ class PaigeApp(ctk.CTk):
         """Displays error using standard tkinter messagebox."""
         messagebox.showerror(title, message)
 
+    # --------------------------------------------------------------------------
+    # About Dialog
+    # --------------------------------------------------------------------------
+    def show_about(self):
+        """Displays the About dialog."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("About Paige")
+        dialog.geometry("360x240")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+
+        # Center over parent
+        self.update_idletasks()
+        px = self.winfo_rootx() + (self.winfo_width() // 2) - 180
+        py = self.winfo_rooty() + (self.winfo_height() // 2) - 120
+        dialog.geometry(f"+{max(0, px)}+{max(0, py)}")
+
+        name_label = ctk.CTkLabel(
+            dialog, text="Paige", font=("Segoe UI", 22, "bold")
+        )
+        name_label.pack(pady=(20, 4))
+
+        version_label = ctk.CTkLabel(
+            dialog, text=f"Version {__version__}", font=("Segoe UI", 12)
+        )
+        version_label.pack()
+
+        tagline_label = ctk.CTkLabel(
+            dialog, text="A dumb text editor — that's the point.",
+            font=("Segoe UI", 11)
+        )
+        tagline_label.pack(pady=(12, 4))
+
+        # Plain text, not a clickable link: Paige does not invoke
+        # protocol handlers, per the security model in the README.
+        repo_label = ctk.CTkLabel(
+            dialog, text="github.com/DQ-Labs/Paige",
+            font=("Consolas", 10), text_color=("gray30", "gray70")
+        )
+        repo_label.pack(pady=(0, 12))
+
+        ok_btn = ctk.CTkButton(dialog, text="OK", width=80, command=dialog.destroy)
+        ok_btn.pack(pady=(4, 16))
+
+        # Focus + Esc/Enter to close
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        dialog.bind("<Return>", lambda e: dialog.destroy())
+        # grab_set must come after the window is visible
+        dialog.after(50, dialog.grab_set)
+        dialog.after(60, ok_btn.focus_set)
+
+
+def _parse_cli_args(argv):
+    """Returns the file path passed on the command line, if any.
+
+    Intentionally minimal: we take the first positional argument and ignore
+    the rest. No flag parsing — this is a windowed binary, so stdout/stderr
+    aren't visible, and --help / --version can't usefully report anything.
+    Anyone who needs the version can use the About dialog (F1).
+    """
+    for arg in argv[1:]:
+        # Skip anything that looks like a flag so PyInstaller / shell
+        # internal args don't get treated as a filename.
+        if arg.startswith("-"):
+            continue
+        return arg
+    return None
+
+
 if __name__ == "__main__":
-    app = PaigeApp()
+    initial_file = _parse_cli_args(sys.argv)
+    app = PaigeApp(initial_file=initial_file)
     app.mainloop()

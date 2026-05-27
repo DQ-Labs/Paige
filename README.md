@@ -32,12 +32,20 @@ Paige's security model is "do less." Every item below is something the editor de
 - **Word Wrap Toggle** — off by default for log viewing; toggle via the checkbox in the menu bar.
 - **Text Zoom** — `Ctrl+Scroll` or `Ctrl++`/`Ctrl+-` to resize dynamically.
 - **Context Menu** — right-click for Cut, Copy, Paste, Select All.
+- **Command-Line Open** — `paige.exe path\to\file.log` opens the file directly; nonexistent paths start an empty buffer pre-bound to that name (Notepad-style).
+- **About / Version Info** — press `F1` or click About. The version is also embedded in the executable's Windows file metadata, so right-click → Properties → Details shows it.
 - **Portable Windows Build** — single `.exe`, no installer, no registry writes, no admin rights.
 
 ## Installation
 
 ### For Users
 Download the latest `Paige.exe` from the [Releases page](https://github.com/DQ-Labs/paige/releases). It's a portable executable — no installer, no admin rights, no registry entries. Drop it anywhere and double-click.
+
+**Opening files from the command line:**
+```cmd
+Paige.exe C:\logs\app.log
+```
+Tip: put `Paige.exe` somewhere on your `PATH` (e.g. `%USERPROFILE%\bin`) and you can launch it from any shell. You can also set Paige as the default opener for `.log` / `.conf` / `.txt` via right-click → *Open With* → *Choose another app*.
 
 **Verifying the download.** GitHub records a SHA-256 digest for each release asset (shown on the Releases page under the asset name). You can confirm the file you downloaded matches it:
 ```powershell
@@ -70,6 +78,11 @@ If you'd like to run from source or contribute:
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
 
 ## Release Notes
+
+### v0.8 (2026-05-16) — Road to 1.0, part 1
+- **Command-line file opening.** `Paige.exe somefile.log` now opens that file directly. Nonexistent paths start an empty buffer pre-bound to that name, so `Ctrl+S` creates it (matches Notepad's behavior). Makes file associations and right-click → *Open With* finally useful.
+- **About dialog (`F1`).** Surfaces the running version, tagline, and repo URL. Repo URL is shown as plain text rather than as a clickable link — Paige still doesn't invoke OS protocol handlers, by design.
+- **Version stamped into the binary.** `__version__` in `main.py` is the single source of truth; the build workflow extracts it and writes a Windows version-info resource, so `Paige.exe` → Properties → Details shows the version. No more "what version am I running?" guessing.
 
 ### v0.7 (2026-05-16)
 **Security & integrity hardening.**

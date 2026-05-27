@@ -30,9 +30,58 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Generate Windows version metadata
+      shell: pwsh
+      run: |
+        # Extract __version__ from main.py via regex (avoid importing the
+        # module — it pulls in customtkinter, which we don't need here).
+        $content = Get-Content main.py -Raw
+        if ($content -notmatch '__version__\s*=\s*"([^"]+)"') {
+          Write-Error "Could not find __version__ in main.py"
+          exit 1
+        }
+        $version = $Matches[1]
+        Write-Host "Building Paige version $version"
+
+        # PyInstaller's VSVersionInfo wants a 4-tuple of ints.
+        $parts = @($version.Split('.') | ForEach-Object { [int]$_ })
+        while ($parts.Count -lt 4) { $parts += 0 }
+        $verTuple = "(" + ($parts -join ', ') + ")"
+        $verStr   = ($parts -join '.')
+
+        $versionFile = @"
+        VSVersionInfo(
+          ffi=FixedFileInfo(
+            filevers=$verTuple,
+            prodvers=$verTuple,
+            mask=0x3f,
+            flags=0x0,
+            OS=0x4,
+            fileType=0x1,
+            subtype=0x0,
+            date=(0, 0)
+          ),
+          kids=[
+            StringFileInfo([
+              StringTable('040904B0', [
+                StringStruct('CompanyName', 'DQ-Labs'),
+                StringStruct('FileDescription', 'Paige - a dumb text editor'),
+                StringStruct('FileVersion', '$verStr'),
+                StringStruct('InternalName', 'Paige'),
+                StringStruct('OriginalFilename', 'Paige.exe'),
+                StringStruct('ProductName', 'Paige'),
+                StringStruct('ProductVersion', '$verStr'),
+              ])
+            ]),
+            VarFileInfo([VarStruct('Translation', [1033, 1200])])
+          ]
+        )
+        "@
+        Set-Content -Path version.txt -Value $versionFile -Encoding utf8
+
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconfirm --onefile --windowed --name "Paige" --icon="assets/icon.ico" --add-data "assets;assets" main.py
+        pyinstaller --noconfirm --onefile --windowed --name "Paige" --icon="assets/icon.ico" --add-data "assets;assets" --version-file=version.txt main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
