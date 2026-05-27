@@ -28,7 +28,9 @@ jobs:
       run: pip install pytest
 
     - name: Run smoke tests
-      run: pytest tests/ -v
+      # `python -m pytest` (not bare `pytest`) so the CWD is added to
+      # sys.path and `import paige_core` resolves.
+      run: python -m pytest tests/ -v
 
   build:
     needs: test
