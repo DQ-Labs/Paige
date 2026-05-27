@@ -5,13 +5,41 @@ on:
     branches: [ "main" ]
     tags: [ "v*" ]
 
-# Default to read-only at the workflow scope; the release job opts in to write.
+# Default to read-only at the workflow scope; specific jobs opt in to more.
 permissions:
   contents: read
 
 jobs:
+  test:
+    # Pure-Python smoke tests on Ubuntu — no GUI dependencies, fast feedback.
+    # Gates the (slower, Windows) build job.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install pytest
+      run: pip install pytest
+
+    - name: Run smoke tests
+      run: pytest tests/ -v
+
   build:
+    needs: test
     runs-on: windows-latest
+
+    # Build attestation needs id-token and attestations write; nothing else
+    # in this job writes anywhere. Scoped to the job, not the workflow.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
     - uses: actions/checkout@v4
@@ -33,11 +61,11 @@ jobs:
     - name: Generate Windows version metadata
       shell: pwsh
       run: |
-        # Extract __version__ from main.py via regex (avoid importing the
-        # module — it pulls in customtkinter, which we don't need here).
-        $content = Get-Content main.py -Raw
+        # Extract __version__ from paige_core.py via regex. Source of truth
+        # lives there; main.py re-exports it for runtime use.
+        $content = Get-Content paige_core.py -Raw
         if ($content -notmatch '__version__\s*=\s*"([^"]+)"') {
-          Write-Error "Could not find __version__ in main.py"
+          Write-Error "Could not find __version__ in paige_core.py"
           exit 1
         }
         $version = $Matches[1]
@@ -82,6 +110,14 @@ jobs:
     - name: Build with PyInstaller
       run: |
         pyinstaller --noconfirm --onefile --windowed --name "Paige" --icon="assets/icon.ico" --add-data "assets;assets" --version-file=version.txt main.py
+
+    - name: Attest build provenance
+      # Pinned to immutable commit SHA (v4.1.0). Generates a signed SLSA
+      # attestation linking dist/Paige.exe to this workflow run + commit.
+      # Users verify with: gh attestation verify Paige.exe --owner DQ-Labs
+      uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+      with:
+        subject-path: dist/Paige.exe
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4

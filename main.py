@@ -1,13 +1,22 @@
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox
-import json
 import os
-import re
 import sys
-import tempfile
 
-__version__ = "0.10"
+import paige_core
+from paige_core import (
+    __version__,
+    RECENT_FILES_MAX,
+    detect_newline,
+    load_settings,
+    parse_cli_args,
+    read_text_file,
+    save_settings,
+    stat_for_change_detection,
+    validate_settings,
+    write_atomic,
+)
 
 # ------------------------------------------------------------------------------
 # Configuration & Vibe
@@ -16,98 +25,18 @@ ctk.set_default_color_theme("blue")
 # Note: ctk.set_appearance_mode() is called in __main__ after loading settings,
 # so the saved theme is honored before the first widget is created.
 
-RECENT_FILES_MAX = 10
-GEOMETRY_RE = re.compile(r"^\d+x\d+([+-]\d+[+-]\d+)?$")
-
-
-# ------------------------------------------------------------------------------
-# Settings persistence
-# ------------------------------------------------------------------------------
-def _settings_path():
-    """Returns the per-user settings file path for the current OS."""
-    if os.name == "nt":
-        base = os.environ.get("APPDATA") or os.path.expanduser("~")
-        return os.path.join(base, "Paige", "settings.json")
-    if sys.platform == "darwin":
-        return os.path.expanduser("~/Library/Application Support/Paige/settings.json")
-    # Linux / BSD: XDG Base Directory spec.
-    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(xdg, "paige", "settings.json")
-
-
-def _load_settings():
-    """Reads settings.json. Returns {} on any failure — a corrupt or missing
-    prefs file must never prevent the editor from launching."""
-    try:
-        with open(_settings_path(), "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError, ValueError):
-        return {}
-
-
-def _save_settings(settings):
-    """Atomically writes settings to disk. Silently no-ops on failure;
-    settings persistence is best-effort, not a hard requirement."""
-    path = _settings_path()
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-    except OSError:
-        return
-
-    tmp_path = None
-    tmp_fd = None
-    try:
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            prefix=".paige-settings-", suffix=".tmp",
-            dir=os.path.dirname(path)
-        )
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            tmp_fd = None  # fdopen now owns the descriptor
-            json.dump(settings, f, indent=2, sort_keys=True)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-        tmp_path = None
-    except OSError:
-        pass
-    finally:
-        if tmp_fd is not None:
-            try:
-                os.close(tmp_fd)
-            except OSError:
-                pass
-        if tmp_path is not None and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
 class PaigeApp(ctk.CTk):
     def __init__(self, initial_file=None, settings=None):
         super().__init__()
 
-        settings = settings or {}
-
-        # Pull validated values out of settings, with defaults.
-        font_size = settings.get("font_size", 14)
-        if not isinstance(font_size, int) or not (10 <= font_size <= 30):
-            font_size = 14
-
-        appearance = settings.get("appearance_mode", "Dark")
-        if appearance not in ("Dark", "Light"):
-            appearance = "Dark"
-
-        word_wrap = bool(settings.get("word_wrap", False))
-
-        geom = settings.get("window_geometry", "900x700")
-        if not isinstance(geom, str) or not GEOMETRY_RE.match(geom):
-            geom = "900x700"
-
-        recents = settings.get("recent_files", [])
-        if not isinstance(recents, list):
-            recents = []
-        recents = [p for p in recents if isinstance(p, str)][:RECENT_FILES_MAX]
+        # validate_settings applies defaults to every key and coerces types,
+        # so we can read these straight without further checks.
+        settings = validate_settings(settings or {})
+        font_size = settings["font_size"]
+        appearance = settings["appearance_mode"]
+        word_wrap = settings["word_wrap"]
+        geom = settings["window_geometry"]
+        recents = settings["recent_files"]
 
         # Window Setup
         self.title("Paige")
@@ -640,13 +569,7 @@ class PaigeApp(ctk.CTk):
 
     def _record_file_stat(self, file_path):
         """Records the on-disk file stat for external-change detection."""
-        try:
-            st = os.stat(file_path)
-            self.file_mtime_ns = st.st_mtime_ns
-            self.file_size = st.st_size
-        except OSError:
-            self.file_mtime_ns = None
-            self.file_size = None
+        self.file_mtime_ns, self.file_size = stat_for_change_detection(file_path)
 
     # --------------------------------------------------------------------------
     # File Operations
@@ -702,20 +625,7 @@ class PaigeApp(ctk.CTk):
                 return
 
         try:
-            # newline="" disables universal-newline translation so we can
-            # detect the file's original line ending and preserve it on save.
-            with open(file_path, "r", encoding="utf-8", newline="") as f:
-                raw = f.read()
-
-            if "\r\n" in raw:
-                self.file_newline = "\r\n"
-            elif "\r" in raw:
-                self.file_newline = "\r"
-            else:
-                self.file_newline = "\n"
-
-            # Normalize to \n for the Tk widget (it works in \n internally).
-            content = raw.replace("\r\n", "\n").replace("\r", "\n")
+            content, self.file_newline = read_text_file(file_path)
 
             # Briefly enable the widget in case we're loading while read-only.
             self.textbox._textbox.configure(state="normal")
@@ -789,47 +699,19 @@ class PaigeApp(ctk.CTk):
                 # itself surface any real error.
                 pass
 
-        # Write to a sibling temp file and os.replace() into place so a crash
-        # mid-write can never leave the user with a truncated original.
+        # Delegate the actual temp-file + fsync + os.replace dance to
+        # paige_core.write_atomic so the I/O is testable in isolation.
         content = self.textbox.get("1.0", "end-1c")
-        if self.file_newline != "\n":
-            content = content.replace("\n", self.file_newline)
-
-        target_dir = os.path.dirname(os.path.abspath(file_path)) or "."
-        tmp_fd = None
-        tmp_path = None
         try:
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                prefix=".paige-", suffix=".tmp", dir=target_dir
-            )
-            with os.fdopen(tmp_fd, "w", encoding="utf-8", newline="") as f:
-                tmp_fd = None  # fdopen now owns the descriptor
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, file_path)
-            tmp_path = None
-
+            write_atomic(file_path, content, newline=self.file_newline)
             self.current_file = file_path
             self.text_modified = False
             self._record_file_stat(file_path)
             self.update_title()
             return True
-
         except Exception as e:
             self._show_error("Save Error", f"Could not save file:\n{str(e)}")
             return False
-        finally:
-            if tmp_fd is not None:
-                try:
-                    os.close(tmp_fd)
-                except OSError:
-                    pass
-            if tmp_path is not None and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except OSError:
-                    pass
 
     # --------------------------------------------------------------------------
     # Context Menu Methods
@@ -871,7 +753,7 @@ class PaigeApp(ctk.CTk):
         """Snapshot current state to settings.json. Best-effort — never
         raises into the UI; a failure to save prefs shouldn't disrupt edits."""
         try:
-            _save_settings({
+            save_settings({
                 "version": 1,
                 "font_size": self.font_size,
                 "appearance_mode": self.appearance_mode,
@@ -1262,25 +1144,8 @@ class PaigeApp(ctk.CTk):
         dialog.after(60, ok_btn.focus_set)
 
 
-def _parse_cli_args(argv):
-    """Returns the file path passed on the command line, if any.
-
-    Intentionally minimal: we take the first positional argument and ignore
-    the rest. No flag parsing — this is a windowed binary, so stdout/stderr
-    aren't visible, and --help / --version can't usefully report anything.
-    Anyone who needs the version can use the About dialog (F1).
-    """
-    for arg in argv[1:]:
-        # Skip anything that looks like a flag so PyInstaller / shell
-        # internal args don't get treated as a filename.
-        if arg.startswith("-"):
-            continue
-        return arg
-    return None
-
-
 if __name__ == "__main__":
-    settings = _load_settings()
+    settings = load_settings()
     # Apply the saved theme BEFORE the first widget is created so the
     # initial paint matches the user's choice instead of flashing dark.
     saved_theme = settings.get("appearance_mode", "Dark")
@@ -1288,6 +1153,6 @@ if __name__ == "__main__":
         saved_theme = "Dark"
     ctk.set_appearance_mode(saved_theme)
 
-    initial_file = _parse_cli_args(sys.argv)
+    initial_file = parse_cli_args(sys.argv)
     app = PaigeApp(initial_file=initial_file, settings=settings)
     app.mainloop()

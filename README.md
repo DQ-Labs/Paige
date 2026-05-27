@@ -20,7 +20,8 @@ Paige's security model is "do less." Every item below is something the editor de
 - **Atomic saves.** Writes go to a sibling temp file, are `fsync`ed, then atomically renamed into place via `os.replace`. A crash, power loss, or full disk during save cannot leave you with a half-written file — either the old contents or the new contents are on disk, never a truncated hybrid.
 - **Line-ending fidelity.** Paige detects whether a file uses `\r\n`, `\n`, or `\r` on open and writes the same style back out. Round-tripping an LF-only file on Windows does not silently convert it to CRLF.
 - **Strict UTF-8.** Files are read as UTF-8. If a file isn't valid UTF-8, Paige refuses to guess — it surfaces a decode error and leaves the buffer untouched, rather than silently mis-decoding bytes (which can corrupt non-ASCII data on save).
-- **Supply-chain hardened CI.** The build pipeline defaults to `contents: read`, uses `persist-credentials: false` on checkout so no git token sits on disk during the build, and pins third-party actions by commit SHA rather than mutable tag — the attack vector behind the March 2025 `tj-actions/changed-files` compromise.
+- **Supply-chain hardened CI with signed provenance.** The build pipeline defaults to `contents: read`, uses `persist-credentials: false` on checkout, and pins third-party actions by commit SHA rather than mutable tag — the attack vector behind the March 2025 `tj-actions/changed-files` compromise. Every released `Paige.exe` ships with a [SLSA build attestation](https://slsa.dev/spec/v1.0/provenance) you can verify against the workflow run and commit that produced it (see *Verifying the binary* below).
+- **Smoke-tested data layer.** The atomic-save guarantee (and the rest of the file-I/O / settings code) is exercised by a [pytest suite](tests/test_paige_core.py) that runs on every commit. Tests include simulated `os.replace` and `os.fsync` failures verifying that an interrupted save leaves the original file untouched.
 
 ## Features
 - **Dark/Light Theme Toggle** — switch appearance on the fly without restarting.
@@ -58,12 +59,19 @@ Tip: put `Paige.exe` somewhere on your `PATH` (e.g. `%USERPROFILE%\bin`) and you
 2. Right-click any file of that type → *Properties* → *Change…* → pick Paige. (Windows requires this manual step for setting defaults; apps cannot do it programmatically.)
 3. *Remove All* in the same dialog cleanly unregisters Paige if you change your mind.
 
-**Verifying the download.** GitHub records a SHA-256 digest for each release asset (shown on the Releases page under the asset name). You can confirm the file you downloaded matches it:
-```powershell
-Get-FileHash Paige.exe -Algorithm SHA256
-```
+**Verifying the binary.** Two layers of verification are available:
 
-> Windows SmartScreen may warn the first time you run Paige because the binary is not code-signed (signing certificates are not free for hobby projects). Every release is built from this repository by GitHub Actions; the [build workflow](.github/workflows/build.yml) is the entire build process, and the commit it ran on is linked from the release page.
+1. **SHA-256 digest** (quick check, no extra tools — GitHub publishes the digest on the Releases page):
+   ```powershell
+   Get-FileHash Paige.exe -Algorithm SHA256
+   ```
+
+2. **SLSA build attestation** (cryptographically links the binary to the exact workflow run and commit that produced it — requires the [GitHub CLI](https://cli.github.com/)):
+   ```bash
+   gh attestation verify Paige.exe --owner DQ-Labs
+   ```
+
+> Windows SmartScreen may warn the first time you run Paige because the binary is not code-signed (signing certificates are not free for hobby projects). The attestation above is the next-best thing: it lets you prove the file was built by this repository's workflow on a specific commit. The [build workflow](.github/workflows/build.yml) is the entire build process.
 
 ### For Developers
 If you'd like to run from source or contribute:
@@ -83,12 +91,26 @@ If you'd like to run from source or contribute:
    ```bash
    python main.py
    ```
+4. (Optional) Run the smoke tests:
+   ```bash
+   pip install pytest
+   pytest tests/
+   ```
+   These exercise the file-I/O and settings code in `paige_core.py` without needing a display.
 
 ## Future Possibilities
 - [ ] **Syntax Highlighting**: Support for `.py`, `.json`, `.yml`, and `.log` files.
 - [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
 
 ## Release Notes
+
+### v0.11 (2026-05-27) — Road to 1.0, part 4: verification
+No new features — this release is about making the existing security/integrity claims **verifiable** rather than just stated. After this, only a version bump to 1.0 remains.
+
+- **Pure-Python core extracted to `paige_core.py`.** All file-I/O, settings, and validation logic moved into a Tk-free module so it can be tested headlessly. `main.py` becomes a thin GUI shell that imports from it. No runtime behavior changes.
+- **47 smoke tests** in `tests/test_paige_core.py`, covering settings round-trip, corrupt-JSON tolerance, all the validation edge cases, line-ending detection, and write-atomicity. The atomic-save promise is now verified by tests that simulate `os.replace` and `os.fsync` failures and assert the original file remains untouched.
+- **CI gates the build on tests.** New `test` job (Ubuntu, ~30s) runs before the Windows build job; build only proceeds on a green test run.
+- **Signed build provenance.** `actions/attest-build-provenance` (pinned by SHA, of course) generates a SLSA attestation for every released `Paige.exe`, cryptographically linking the binary to the workflow run and commit that built it. Verify with `gh attestation verify Paige.exe --owner DQ-Labs`.
 
 ### v0.10 (2026-05-27) — Road to 1.0, part 3: state & navigation
 The last feature batch before 1.0. After this, the remaining work is verification (smoke tests + signed build provenance) rather than new functionality.
