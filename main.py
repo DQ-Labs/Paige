@@ -69,15 +69,18 @@ class PaigeApp(ctk.CTk):
         self.menu_bar = ctk.CTkFrame(self, corner_radius=0, height=30)
         self.menu_bar.grid(row=0, column=0, sticky="ew")
 
-        # Menu Buttons
-        self.btn_open = self._create_menu_button("Open", self.open_file)
-        self.btn_recent = self._create_menu_button("Recent", self._show_recent_menu)
-        self.btn_save = self._create_menu_button("Save", self.save_file)
-        self.btn_save_as = self._create_menu_button("Save As", self.save_as_file)
-        self.btn_find_replace = self._create_menu_button("Find/Replace", self.open_find_replace_dialog)
-        self.btn_toggle_theme = self._create_menu_button("Toggle Theme", self.toggle_theme)
-        self.btn_file_types = self._create_menu_button("File Types...", self.show_file_types_dialog)
-        self.btn_about = self._create_menu_button("About", self.show_about)
+        # Menu Buttons (grouped into dropdowns to keep the bar uncluttered).
+        # Frequently-toggled controls (Word Wrap, Read-Only) stay as visible
+        # checkboxes on the right; rarely-used actions live under these menus.
+        self.btn_file = self._create_menu_button("File", self._show_file_menu)
+        self.btn_edit = self._create_menu_button("Edit", self._show_edit_menu)
+        self.btn_view = self._create_menu_button("View", self._show_view_menu)
+        self.btn_help = self._create_menu_button("Help", self._show_help_menu)
+
+        # Save now lives inside the File menu rather than as a standalone
+        # button; read-only mode disables that menu entry instead (see
+        # _apply_read_only_state, which null-guards this attribute).
+        self.btn_save = None
 
         # Text Size Controls
         self.font_size = font_size  # restored from settings
@@ -543,6 +546,49 @@ class PaigeApp(ctk.CTk):
         btn.pack(side="left", padx=2, pady=2)
         return btn
 
+    def _popup_under(self, menu, button):
+        """Pops up a tk.Menu flush below the given menu-bar button."""
+        try:
+            x = button.winfo_rootx()
+            y = button.winfo_rooty() + button.winfo_height()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def _show_file_menu(self):
+        """Opens the File dropdown."""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Open", command=self.open_file)
+        menu.add_cascade(label="Recent", menu=self._build_recent_menu(menu))
+        menu.add_separator()
+        # Save is disabled in read-only mode (mirrors the old Save button).
+        save_state = "disabled" if self.read_only_var.get() else "normal"
+        menu.add_command(label="Save", command=self.save_file, state=save_state)
+        menu.add_command(label="Save As", command=self.save_as_file)
+        menu.add_separator()
+        menu.add_command(label="File Types...", command=self.show_file_types_dialog)
+        menu.add_separator()
+        menu.add_command(label="Exit", command=self.on_closing)
+        self._popup_under(menu, self.btn_file)
+
+    def _show_edit_menu(self):
+        """Opens the Edit dropdown."""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Find/Replace", command=self.open_find_replace_dialog)
+        self._popup_under(menu, self.btn_edit)
+
+    def _show_view_menu(self):
+        """Opens the View dropdown."""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Toggle Theme", command=self.toggle_theme)
+        self._popup_under(menu, self.btn_view)
+
+    def _show_help_menu(self):
+        """Opens the Help dropdown."""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="About", command=self.show_about)
+        self._popup_under(menu, self.btn_help)
+
     # --------------------------------------------------------------------------
     # Read-Only Mode
     # --------------------------------------------------------------------------
@@ -782,9 +828,9 @@ class PaigeApp(ctk.CTk):
         parent = os.path.basename(os.path.dirname(path))
         return f"{name}  —  {parent}" if parent else name
 
-    def _show_recent_menu(self):
-        """Pops up the Recent Files menu below the Recent button."""
-        menu = tk.Menu(self, tearoff=0)
+    def _build_recent_menu(self, parent):
+        """Builds the Recent Files menu (used as a cascade under File)."""
+        menu = tk.Menu(parent, tearoff=0)
         if not self.recent_files:
             menu.add_command(label="(no recent files)", state="disabled")
         else:
@@ -795,14 +841,7 @@ class PaigeApp(ctk.CTk):
                 )
             menu.add_separator()
             menu.add_command(label="Clear Recent Files", command=self._clear_recent)
-
-        # Position below the Recent button.
-        try:
-            x = self.btn_recent.winfo_rootx()
-            y = self.btn_recent.winfo_rooty() + self.btn_recent.winfo_height()
-            menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
+        return menu
 
     def _open_from_recent(self, path):
         """Opens a file selected from the Recent menu, with the usual guard."""
