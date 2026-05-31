@@ -153,7 +153,7 @@ class PaigeApp(ctk.CTk):
         self.textbox._textbox.tag_config("search_highlight", background="yellow", foreground="black")
         
         # Right-Click Context Menu
-        self.context_menu = tk.Menu(self.textbox._textbox, tearoff=0)
+        self.context_menu = self._make_menu(self.textbox._textbox)
         self.context_menu.add_command(label="Cut", command=self._context_cut)
         self.context_menu.add_command(label="Copy", command=self._context_copy)
         self.context_menu.add_command(label="Paste", command=self._context_paste)
@@ -233,6 +233,9 @@ class PaigeApp(ctk.CTk):
         else:
             self.appearance_mode = "Dark"
         ctk.set_appearance_mode(self.appearance_mode)
+        # Dropdowns are rebuilt on each popup, but the context menu persists —
+        # re-style it so it tracks the new theme.
+        self._style_menu(self.context_menu)
         self._persist_settings()
 
     def check_unsaved_changes(self):
@@ -546,6 +549,43 @@ class PaigeApp(ctk.CTk):
         btn.pack(side="left", padx=2, pady=2)
         return btn
 
+    def _make_menu(self, parent=None):
+        """Creates a tk.Menu styled to match the current CTk theme.
+
+        Native tk.Menu defaults to the OS light style with a tiny font, which
+        clashes with Paige's themed bar. We override the colors and font so the
+        dropdowns, the Recent submenu, and the right-click menu blend in.
+        """
+        menu = tk.Menu(parent or self, tearoff=0)
+        self._style_menu(menu)
+        return menu
+
+    def _style_menu(self, menu):
+        """Applies theme-appropriate colors and a DPI-scaled font to a menu."""
+        if ctk.get_appearance_mode() == "Dark":
+            colors = {
+                "bg": "#2b2b2b", "fg": "#dce4ee",
+                "activebackground": "#1f6aa5", "activeforeground": "#ffffff",
+                "disabledforeground": "#6e6e6e",
+            }
+        else:
+            colors = {
+                "bg": "#ebebeb", "fg": "#1a1a1a",
+                "activebackground": "#3a7ebf", "activeforeground": "#ffffff",
+                "disabledforeground": "#9a9a9a",
+            }
+        # tk.Menu is native and ignores CTk's widget scaling, so it renders
+        # tiny on high-DPI displays. Scale the font to match the rest of the UI.
+        try:
+            scaling = ctk.ScalingTracker.get_widget_scaling(self)
+        except Exception:
+            scaling = 1.0
+        menu.configure(
+            font=("Segoe UI", int(11 * scaling)),
+            bd=0, relief="flat", activeborderwidth=0,
+            **colors,
+        )
+
     def _popup_under(self, menu, button):
         """Pops up a tk.Menu flush below the given menu-bar button."""
         try:
@@ -557,7 +597,7 @@ class PaigeApp(ctk.CTk):
 
     def _show_file_menu(self):
         """Opens the File dropdown."""
-        menu = tk.Menu(self, tearoff=0)
+        menu = self._make_menu()
         menu.add_command(label="Open", command=self.open_file)
         menu.add_cascade(label="Recent", menu=self._build_recent_menu(menu))
         menu.add_separator()
@@ -573,19 +613,19 @@ class PaigeApp(ctk.CTk):
 
     def _show_edit_menu(self):
         """Opens the Edit dropdown."""
-        menu = tk.Menu(self, tearoff=0)
+        menu = self._make_menu()
         menu.add_command(label="Find/Replace", command=self.open_find_replace_dialog)
         self._popup_under(menu, self.btn_edit)
 
     def _show_view_menu(self):
         """Opens the View dropdown."""
-        menu = tk.Menu(self, tearoff=0)
+        menu = self._make_menu()
         menu.add_command(label="Toggle Theme", command=self.toggle_theme)
         self._popup_under(menu, self.btn_view)
 
     def _show_help_menu(self):
         """Opens the Help dropdown."""
-        menu = tk.Menu(self, tearoff=0)
+        menu = self._make_menu()
         menu.add_command(label="About", command=self.show_about)
         self._popup_under(menu, self.btn_help)
 
@@ -830,7 +870,7 @@ class PaigeApp(ctk.CTk):
 
     def _build_recent_menu(self, parent):
         """Builds the Recent Files menu (used as a cascade under File)."""
-        menu = tk.Menu(parent, tearoff=0)
+        menu = self._make_menu(parent)
         if not self.recent_files:
             menu.add_command(label="(no recent files)", state="disabled")
         else:
