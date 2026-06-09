@@ -2,6 +2,8 @@
 
 ![Build Status](https://github.com/DQ-Labs/paige/actions/workflows/build.yml/badge.svg)
 
+> **Status: Stable — v1.0.** Paige is feature-complete. Future releases are bug fixes only — no new features, by design (every feature is attack surface).
+
 ## The "Why"
 Paige is a **Dumb Text Editor** — and that's the entire point.
 
@@ -98,35 +100,36 @@ If you'd like to run from source or contribute:
    ```
    These exercise the file-I/O and settings code in `paige_core.py` without needing a display.
 
-## Future Possibilities
-- [ ] **Syntax Highlighting**: Support for `.py`, `.json`, `.yml`, and `.log` files.
-- [ ] **JSON Formatting**: One-click "Prettify" for JSON strings.
-
 ## Release Notes
 
-### v0.11 (2026-05-27) — Road to 1.0, part 4: verification
-No new features — this release is about making the existing security/integrity claims **verifiable** rather than just stated. After this, only a version bump to 1.0 remains.
+### v1.0 (2026-06-09) — Stable
+Paige is **feature-complete**. The 0.7–0.11 series landed security hardening, trust-on-real-files behavior, persisted state and navigation, and verifiable build provenance; this release marks the editor stable. From here, releases are **bug fixes only** — no new features, because every feature is attack surface and keeping it fixed is the point.
+
+- **Menu bar grouped into File / Edit / View / Help dropdowns**, themed to match dark/light mode. The flat row of buttons had grown crowded; the frequently-toggled controls (Read-Only, Word Wrap, Text Size) stay visible on the right. The dropdowns and the right-click context menu now honor the active theme and DPI scaling instead of rendering in the OS light style.
+- **Version bump to 1.0.** No changes to the file-I/O or security core.
+
+### v0.11 (2026-05-27) — Verifiable security claims
+No new features — this release is about making the existing security/integrity claims **verifiable** rather than just stated.
 
 - **Pure-Python core extracted to `paige_core.py`.** All file-I/O, settings, and validation logic moved into a Tk-free module so it can be tested headlessly. `main.py` becomes a thin GUI shell that imports from it. No runtime behavior changes.
 - **47 smoke tests** in `tests/test_paige_core.py`, covering settings round-trip, corrupt-JSON tolerance, all the validation edge cases, line-ending detection, and write-atomicity. The atomic-save promise is now verified by tests that simulate `os.replace` and `os.fsync` failures and assert the original file remains untouched.
 - **CI gates the build on tests.** New `test` job (Ubuntu, ~30s) runs before the Windows build job; build only proceeds on a green test run.
 - **Signed build provenance.** `actions/attest-build-provenance` (pinned by SHA, of course) generates a SLSA attestation for every released `Paige.exe`, cryptographically linking the binary to the workflow run and commit that built it. Verify with `gh attestation verify Paige.exe --owner DQ-Labs`.
 
-### v0.10 (2026-05-27) — Road to 1.0, part 3: state & navigation
-The last feature batch before 1.0. After this, the remaining work is verification (smoke tests + signed build provenance) rather than new functionality.
+### v0.10 (2026-05-27) — State & navigation
 
 - **Persisted preferences.** Theme, font size, word-wrap state, window geometry, and recent files now survive between launches. Stored in `%APPDATA%\Paige\settings.json` on Windows (XDG-compliant location on Linux/macOS), written atomically with the same temp-file + `os.replace` pattern as document saves. A corrupt or missing settings file is silently ignored — the editor always launches with defaults rather than crashing on prefs.
 - **Recent Files menu.** New *Recent* button between *Open* and *Save* shows the last 10 files you've opened, formatted as `filename — parent_dir` to disambiguate similarly-named files. *Clear Recent Files* at the bottom of the menu. If a file in the list no longer exists when clicked, you're offered the chance to remove it.
 - **Go to Line (`Ctrl+G`).** Small dialog, pre-populated with the current line and showing the file's max line for context. Validates input and clamps to range. Works in read-only mode — it's just navigation.
 
-### v0.9 (2026-05-27) — Road to 1.0, part 2: trust on real files
+### v0.9 (2026-05-27) — Trust on real files
 This release answers the question *"can I trust Paige with my live config files?"* — three related features for editing real files on a real system.
 
 - **Read-Only mode.** New checkbox in the menu bar; title shows `[Read-Only]`, Save and Replace refuse, Find still works. Auto-enabled when you open a file you lack write permission for (e.g., a system log as a non-admin user). The text widget still supports selection and copy in this mode, so it's usable as a viewer.
 - **External-change detection.** Paige records the file's `mtime`+`size` (nanosecond precision) on every load and save. At save time, if the on-disk file has changed since you opened it, you get a prompt before overwriting — so a colleague's concurrent edit doesn't get silently clobbered. Save As to a new path skips the check (it's an intentional new write).
 - **File type registration.** New *File Types…* menu opens a small dialog to register Paige with Windows for common text-ish extensions. Writes only to `HKCU\Software\Classes` — per-user, no admin, no system-wide changes. Adds Paige to *Open With*; users still pick the default via Windows' Properties UI (apps cannot programmatically claim defaults, by Microsoft's design). One-click *Remove All* cleanly unregisters.
 
-### v0.8 (2026-05-16) — Road to 1.0, part 1
+### v0.8 (2026-05-16) — Command-line open & versioning
 - **Command-line file opening.** `Paige.exe somefile.log` now opens that file directly. Nonexistent paths start an empty buffer pre-bound to that name, so `Ctrl+S` creates it (matches Notepad's behavior). Makes file associations and right-click → *Open With* finally useful.
 - **About dialog (`F1`).** Surfaces the running version, tagline, and repo URL. Repo URL is shown as plain text rather than as a clickable link — Paige still doesn't invoke OS protocol handlers, by design.
 - **Version stamped into the binary.** `__version__` in `main.py` is the single source of truth; the build workflow extracts it and writes a Windows version-info resource, so `Paige.exe` → Properties → Details shows the version. No more "what version am I running?" guessing.

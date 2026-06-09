@@ -16,7 +16,7 @@ import sys
 import tempfile
 
 
-__version__ = "0.11"
+__version__ = "1.0"
 
 RECENT_FILES_MAX = 10
 GEOMETRY_RE = re.compile(r"^\d+x\d+([+-]\d+[+-]\d+)?$")
